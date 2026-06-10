@@ -1,6 +1,6 @@
 ---
 title: NLStat Typology API
-emoji: 🇳🇱
+emoji: 📊
 colorFrom: indigo
 colorTo: blue
 sdk: docker

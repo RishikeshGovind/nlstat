@@ -2,10 +2,13 @@ library(plumber)
 library(jsonlite)
 library(cluster)
 
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
 # ── Load & pre-process data at startup ────────────────────────────────────
 cat("Loading nl_data.json...\n")
 DATA_PATH <- if (file.exists("nl_data.json")) "nl_data.json" else "/app/nl_data.json"
-NL_DATA   <- fromJSON(DATA_PATH, simplifyDataFrame = FALSE)
+raw       <- fromJSON(DATA_PATH, simplifyDataFrame = FALSE)
+NL_DATA   <- raw$Gemeente %||% raw   # unwrap Gemeente wrapper if present
 cat(sprintf("Loaded %d municipalities\n", length(NL_DATA)))
 
 DOMAINS <- c("Demographics","Inequality","HumanCapital","Housing","IncomeWealth",
@@ -415,5 +418,3 @@ function(ids = "", k = "auto") {
   )
 }
 
-# Null-coalescing helper
-`%||%` <- function(a, b) if (!is.null(a)) a else b

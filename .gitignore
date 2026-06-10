@@ -4,3 +4,4 @@ node_modules/
 __pycache__/
 data/nl_data.json
 data/gemeenten.geojson
+nlstat-typology-api/
