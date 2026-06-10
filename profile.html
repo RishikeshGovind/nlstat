@@ -7,8 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:ital,wght@0,400;0,500;0,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <link rel="stylesheet" href="style.css">
   <script src="js/shared.js"></script>
   <script src="js/cbs-loader.js"></script>
@@ -70,11 +73,35 @@
     .tab-pane { display: none; padding: 24px; }
     .tab-pane.active { display: block; }
 
+    /* Map snapshot thumbnail */
+    #map-snapshot-thumb {
+      width: 220px; flex-shrink: 0; border-radius: 8px; overflow: hidden;
+      border: 1px solid #e5e7eb; background: #e8edf3;
+      position: relative; height: 130px;
+    }
+    #map-snapshot-thumb img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    #map-snapshot-thumb .snap-label {
+      position: absolute; bottom: 5px; left: 7px;
+      background: rgba(255,255,255,.82); backdrop-filter: blur(4px);
+      border-radius: 4px; padding: 1px 6px; font-size: .63rem; font-weight: 600;
+      color: #374151; pointer-events: none;
+    }
+
     /* Domain cards */
     .domain-card {
       background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
       padding: 1.1rem 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.05); margin-bottom: 1.1rem;
+      position: relative;
     }
+    .card-dl-btn {
+      position: absolute; top: 10px; right: 10px;
+      background: #ede9fe; border: 1px solid #c4b5fd; border-radius: 5px;
+      padding: 3px 8px; font-size: .67rem; color: #4f46e5; cursor: pointer;
+      line-height: 1.4; font-weight: 600; white-space: nowrap;
+    }
+    .card-dl-btn:hover { background: #ddd6fe; }
     .domain-title {
       font-size: .8rem; font-weight: 700; color: var(--accent); text-transform: uppercase;
       letter-spacing: .06em; margin-bottom: .9rem;
@@ -320,6 +347,9 @@
           style="font-size:1.15rem;font-weight:700;color:#111827;margin-bottom:8px;outline:none;"
           title="Click to edit title">Click to edit title</h2>
       <div id="summary-zones" class="summary-zones"><!-- injected --></div>
+    </div>
+    <div id="map-snapshot-thumb" style="display:none;">
+      <span class="snap-label">Selected municipalities</span>
     </div>
     <div class="summary-right">
       <div class="population-card">
@@ -598,6 +628,7 @@ document.querySelectorAll('.view-tab').forEach(tab => {
     if (activeTab === 'economy')      renderEconomyTab(aggregateSelected(selectedIds));
     if (activeTab === 'environment')  renderEnvironmentTab(aggregateSelected(selectedIds));
     if (activeTab === 'explorer')     renderExplorerTab();
+    setTimeout(addDownloadButtons, 50);
   });
 });
 
@@ -615,6 +646,202 @@ document.getElementById('run-typology-btn').addEventListener('click', runTypolog
 
 // ── Pre-warm the API on page load so it's ready when user clicks
 setTimeout(() => fetch(`${TYPOLOGY_API}/health`).catch(() => {}), 2000);
+
+// ── Mini map — matches areastat-de: all zones grey, selected purple, zoomed to selection
+window.initZoneMiniMap = async function(ids) {
+  const thumb = document.getElementById('map-snapshot-thumb');
+  if (!thumb || typeof maplibregl === 'undefined') return;
+
+  let geojson;
+  try {
+    const resp = await fetch('./data/gemeenten.geojson');
+    geojson = await resp.json();
+  } catch (e) { return; }
+
+  const selSet = new Set(ids);
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+
+  geojson.features.forEach(f => {
+    const code = (f.properties.statcode || f.properties.gm_code || f.properties.gemcode || '').trim();
+    f.properties._sel = selSet.has(code) ? 1 : 0;
+    if (!f.properties._sel) return;
+    const scan = a => {
+      if (typeof a[0] === 'number') {
+        if (a[0] < minLng) minLng = a[0]; if (a[0] > maxLng) maxLng = a[0];
+        if (a[1] < minLat) minLat = a[1]; if (a[1] > maxLat) maxLat = a[1];
+      } else a.forEach(scan);
+    };
+    if (f.geometry?.coordinates) scan(f.geometry.coordinates);
+  });
+
+  const bounds = minLng < Infinity
+    ? [[minLng, minLat], [maxLng, maxLat]]
+    : [[3.2, 50.75], [7.25, 53.6]];
+
+  thumb.innerHTML = '';
+  thumb.style.display = 'block';
+
+  const mapDiv = document.createElement('div');
+  mapDiv.style.cssText = 'width:100%;height:100%;';
+  thumb.appendChild(mapDiv);
+
+  const miniMap = new maplibregl.Map({
+    container: mapDiv,
+    style: 'https://tiles.openfreemap.org/styles/bright',
+    bounds, fitBoundsOptions: { padding: 32 },
+    dragPan: false, scrollZoom: false, boxZoom: false,
+    dragRotate: false, keyboard: false, doubleClickZoom: false,
+    touchZoomRotate: false, attributionControl: false,
+    preserveDrawingBuffer: true,
+  });
+  window._zoneMiniMap = miniMap;
+
+  miniMap.on('load', () => {
+    miniMap.addSource('zones', { type: 'geojson', data: geojson, generateId: true });
+    miniMap.addLayer({ id: 'zones-bg',  type: 'fill', source: 'zones',
+      filter: ['==', ['get', '_sel'], 0],
+      paint: { 'fill-color': '#d1d5db', 'fill-opacity': 0.5 } });
+    miniMap.addLayer({ id: 'zones-sel', type: 'fill', source: 'zones',
+      filter: ['==', ['get', '_sel'], 1],
+      paint: { 'fill-color': '#4f46e5', 'fill-opacity': 0.65 } });
+    miniMap.addLayer({ id: 'zones-sel-line', type: 'line', source: 'zones',
+      filter: ['==', ['get', '_sel'], 1],
+      paint: { 'line-color': '#312e81', 'line-width': 1.2 } });
+  });
+
+  const label = document.createElement('div');
+  label.className = 'snap-label';
+  label.textContent = ids.length + ' municipalities selected';
+  thumb.appendChild(label);
+};
+
+// ── Per-card image download
+async function downloadCard(btn) {
+  const card = btn.closest('.domain-card');
+  if (!card) return;
+  const origText = btn.textContent;
+  btn.textContent = '…'; btn.disabled = true;
+
+  try {
+    // Hide the button itself so it doesn't appear in the capture
+    btn.style.visibility = 'hidden';
+    const cardCanvas = await html2canvas(card, {
+      scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+    });
+    btn.style.visibility = '';
+
+    const S = 2;
+    const cardTitle  = card.querySelector('.domain-title')?.textContent?.trim() || 'NLStat';
+    const profileTitle = document.getElementById('profile-title')?.textContent?.trim() || '';
+    const zoneChips  = [...document.querySelectorAll('#summary-zones .zone-chip')]
+                         .map(el => el.textContent.trim());
+    const popText    = document.getElementById('total-pop')?.textContent?.trim() || '';
+
+    // Try to get mini-map snapshot (WebGL → PNG like areastat-de)
+    let mmDataUrl = null;
+    try { mmDataUrl = window._zoneMiniMap?.getCanvas().toDataURL('image/png'); } catch (_) {}
+
+    const W = cardCanvas.width;
+    const HDR = 44,  // top title bar height (px at scale 1)
+          CTX = mmDataUrl ? 110 : 0,  // context strip height (map + zone names)
+          FTR = 22;
+
+    const totalH = (HDR + CTX + FTR) * S + cardCanvas.height;
+    const out = document.createElement('canvas');
+    out.width = W; out.height = totalH;
+    const ctx = out.getContext('2d');
+
+    // ── Header bar
+    ctx.fillStyle = '#1e3a5f';
+    ctx.fillRect(0, 0, W, HDR * S);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 ${13 * S}px "Space Grotesk", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText('NLStat — ' + cardTitle, 14 * S, 20 * S);
+    if (profileTitle && profileTitle !== 'Click to edit title') {
+      ctx.font = `400 ${10 * S}px "Inter", sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,.65)';
+      ctx.fillText(profileTitle, 14 * S, 35 * S);
+    }
+
+    // ── Context strip (mini map + selected areas)
+    if (mmDataUrl && CTX > 0) {
+      const stripY = HDR * S;
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, stripY, W, CTX * S);
+
+      // Mini map on the left
+      const mmW = 160 * S, mmH = CTX * S;
+      const mmImg = await new Promise(res => {
+        const img = new Image(); img.onload = () => res(img); img.src = mmDataUrl;
+      });
+      ctx.drawImage(mmImg, 0, stripY, mmW, mmH);
+
+      // Selected areas text on the right
+      const textX = mmW + 12 * S;
+      const maxTextW = W - textX - 12 * S;
+      ctx.fillStyle = '#374151';
+      ctx.font = `600 ${9 * S}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = 'left';
+
+      // Wrap zone names into lines
+      const lineH = 13 * S;
+      let line = '', lineY = stripY + 16 * S;
+      zoneChips.forEach((name, i) => {
+        const test = line ? line + ', ' + name : name;
+        if (ctx.measureText(test).width > maxTextW && line) {
+          ctx.fillText(line, textX, lineY);
+          lineY += lineH; line = name;
+        } else { line = test; }
+        if (i === zoneChips.length - 1 && line) ctx.fillText(line, textX, lineY);
+      });
+
+      if (popText) {
+        ctx.font = `400 ${8.5 * S}px "Inter", sans-serif`;
+        ctx.fillStyle = '#6b7280';
+        ctx.fillText('Total population: ' + popText, textX, stripY + (CTX - 10) * S);
+      }
+
+      // Separator line
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(0, stripY + CTX * S - 1, W, 1);
+    }
+
+    // ── Card content
+    ctx.drawImage(cardCanvas, 0, (HDR + CTX) * S);
+
+    // ── Footer
+    const ftY = (HDR + CTX) * S + cardCanvas.height;
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(0, ftY, W, FTR * S);
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = `400 ${8 * S}px "Inter", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText('Source: CBS 85039NED · Statistics Netherlands · 2022', 14 * S, ftY + 15 * S);
+    ctx.textAlign = 'right';
+    ctx.fillText(new Date().toISOString().slice(0, 10), W - 14 * S, ftY + 15 * S);
+
+    const slug = cardTitle.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    Object.assign(document.createElement('a'), {
+      download: `nlstat_${slug}_${new Date().toISOString().slice(0,10)}.png`,
+      href: out.toDataURL('image/png'),
+    }).click();
+  } finally {
+    btn.textContent = origText; btn.disabled = false;
+  }
+}
+
+function addDownloadButtons() {
+  document.querySelectorAll('.domain-card').forEach(card => {
+    if (card.querySelector('.card-dl-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'card-dl-btn';
+    btn.textContent = '↓ Image';
+    btn.title = 'Download as image';
+    btn.addEventListener('click', () => downloadCard(btn));
+    card.appendChild(btn);
+  });
+}
 
 /* ════════════════════════════════════════════════════════
    RENDER PROFILE
@@ -641,6 +868,8 @@ function renderProfile() {
   renderInequalityTab(agg);
   renderHumanCapitalTab(agg);
   // Housing/IncomeWealth/Services rendered lazily on tab switch (they mount when first visited)
+  setTimeout(addDownloadButtons, 100);
+  requestAnimationFrame(() => initZoneMiniMap(selectedIds));
 }
 
 /* ── Aggregate: mean of all indicators across selected gemeenten */
