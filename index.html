@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>NLStat — Netherlands Inequality &amp; Human Capital Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css">
+  <script src="js/shared.js"></script>
+  <script src="js/cbs-loader.js"></script>
+</head>
+<body>
+
+<div id="app-shell">
+  <main id="map-area">
+    <div id="map"></div>
+
+    <!-- ══ LOADING OVERLAY ══ -->
+    <div id="loading-overlay">
+      <div class="loading-card">
+        <div class="loading-spinner"></div>
+        <div id="loading-message">Initialising NLStat…</div>
+        <div class="loading-sub">Fetching CBS StatLine data for 342 gemeenten</div>
+      </div>
+    </div>
+
+    <!-- ══ FLOATING CONTROL CARD ══ -->
+    <div id="map-control-card">
+      <div class="mcc-header">
+        <span>◈ NLStat</span>
+        <span class="mcc-badge">CBS 2022</span>
+      </div>
+
+      <div class="mcc-section">
+        <div class="mcc-label">Geographic Level</div>
+        <select id="zone-selector" class="mcc-select">
+          <option value="gemeente" selected>Gemeente (Municipality)</option>
+          <option value="provincie">Provincie</option>
+        </select>
+      </div>
+
+      <div class="mcc-section">
+        <div class="mcc-label">Province Filter</div>
+        <div class="mcc-pills" id="province-buttons">
+          <!-- Injected by JS -->
+        </div>
+      </div>
+
+      <div class="mcc-section">
+        <div class="mcc-label">Map Colour</div>
+        <div class="seg-switcher" id="choropleth-switcher">
+          <button class="seg-btn active" data-choropleth="poverty">Poverty</button>
+          <button class="seg-btn" data-choropleth="unemployment">Unempl.</button>
+          <button class="seg-btn" data-choropleth="edu_high">Edu.</button>
+          <button class="seg-btn" data-choropleth="bijstand">Bijstand</button>
+          <button class="seg-btn" data-choropleth="avg_income">Income</button>
+          <button class="seg-btn" data-choropleth="woz_value">WOZ</button>
+          <button class="seg-btn" data-choropleth="social_hh">Social HH</button>
+          <button class="seg-btn" data-choropleth="wmo_clients">Wmo</button>
+          <button class="seg-btn" data-choropleth="biz_density">Business</button>
+          <button class="seg-btn" data-choropleth="disability">Disability</button>
+        </div>
+      </div>
+
+      <div class="mcc-section mcc-controls">
+        <div id="selection-info" style="font-size:.72rem;color:var(--text-muted);width:100%;padding-bottom:.2rem;">0 gemeenten selected</div>
+        <button id="clear-selection-btn" class="mcc-btn">Clear</button>
+        <button id="resetZoomBtn"        class="mcc-btn">Reset</button>
+      </div>
+    </div>
+
+    <!-- ══ CHOROPLETH LEGEND ══ -->
+    <div id="map-legend"></div>
+
+    <!-- ══ OPEN PROFILE BUTTON ══ -->
+    <button id="build-profile-btn">Open in NLStat →</button>
+
+  </main>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+
+<script>
+// ── PDOK — Netherlands gemeente boundaries (2022 generalised)
+// NB: geodata.nationaalgeoregister.nl was decommissioned; service now lives at service.pdok.nl
+const GEMEENTE_URL = 'https://service.pdok.nl/cbs/gebiedsindelingen/2022/wfs/v1_0?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gebiedsindelingen:gemeente_gegeneraliseerd&OUTPUTFORMAT=application/json&SRSNAME=EPSG:4326';
+const GEMEENTE_FALLBACK = './data/gemeenten.geojson'; // local cache (345 gemeenten, WGS84)
+
+// Province pills injected from shared.js NL_PROVINCES
+document.getElementById('province-buttons').innerHTML = NL_PROVINCES.map(p =>
+  `<div class="bl-option"><input type="checkbox" id="prov-${p.code}" value="${p.name}"><label for="prov-${p.code}">${escapeHtml(p.abbr)}</label></div>`
+).join('');
+
+// ── State
+const selectedIds         = new Set();
+const selectedProvinces   = new Set();
+let gemeenteIdMap         = {}; // ML feature index → GM code
+let gemeenteGmToId        = {}; // GM code → ML feature index
+let gemeenteGeoJSON       = null;
+let gemeenteData          = {}; // { GM0363: {...} }
+let nlTotals              = {};
+let activeChoropleth      = 'poverty';
+let currentZoneType       = 'gemeente';
+let sourcesReady          = false;
+let mapLoaded             = false;
+let dataLoaded            = false;
+let geoLoaded             = false;
+window.gcdNameMap         = {};
+
+function setProgress(msg) {
+  const el = document.getElementById('loading-message');
+  if (el) el.textContent = msg;
+}
+
+function hideLoading() {
+  const ov = document.getElementById('loading-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+// ── Map initialisation
+const map = new maplibregl.Map({
+  container: 'map',
+  style:     'https://tiles.openfreemap.org/styles/bright',
+  center:    [5.3, 52.2],
+  zoom:      7,
+  minZoom:   5.5,
+  maxZoom:   14,
+  maxBounds: [[2.5, 50.5], [8.0, 54.2]],
+});
+
+map.setPadding({ left: 256 + 20, top: 0, right: 0, bottom: 0 });
+
+const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+
+map.on('load', () => {
+  mapLoaded = true;
+  fitNetherlands(false);
+  tryAddSources();
+});
+
+function fitNetherlands(animate) {
+  map.fitBounds([[3.2, 50.75], [7.25, 53.6]], {
+    padding: { top: 40, right: 40, bottom: 40, left: 20 },
+    duration: animate ? 1800 : 0,
+  });
+}
+
+// ── Load GeoJSON + CBS data in parallel
+async function init() {
+  setProgress('Fetching gemeente boundaries (PDOK)…');
+
+  // GeoJSON from PDOK (try local fallback first)
+  let geoPromise = fetch(GEMEENTE_FALLBACK)
+    .then(r => { if (!r.ok) throw new Error('no local'); return r.json(); })
+    .catch(() => fetch(GEMEENTE_URL, { signal: AbortSignal.timeout(20000) }).then(r => r.json()));
+
+  geoPromise.then(raw => {
+    gemeenteGeoJSON = raw;
+    raw.features.forEach((f, idx) => {
+      const p   = f.properties || {};
+      const gmc = (p.statcode || p.gm_code || p.gemcode || '').trim();
+      const nam = p.statnaam || p.gm_naam || p.gemeentenaam || '';
+      gemeenteIdMap[idx]  = gmc;
+      if (gmc) {
+        gemeenteGmToId[gmc] = idx;
+        if (nam) window.gcdNameMap[gmc] = nam;
+      }
+    });
+    geoLoaded = true;
+    tryInit();
+  }).catch(err => {
+    console.error('GeoJSON load error:', err);
+    showGeoError();
+  });
+
+  // CBS data (passes GeoJSON features for province injection once both ready)
+  loadNLStatData(null, setProgress).then(data => {
+    gemeenteData = data.Gemeente    || {};
+    nlTotals     = data['Netherlands Total'] || {};
+    window.nlTotals     = nlTotals;
+    window.gemeenteData = gemeenteData;
+    dataLoaded = true;
+    tryInit();
+  });
+}
+
+function tryInit() {
+  if (!dataLoaded || !geoLoaded) return;
+
+  // Inject names & province into gemeenteData from GeoJSON
+  if (gemeenteGeoJSON) injectProvinceNames(gemeenteData, gemeenteGeoJSON.features);
+
+  // Annotate GeoJSON features with choropleth values
+  annotateFeatures();
+
+  hideLoading();
+  tryAddSources();
+}
+
+function annotateFeatures() {
+  if (!gemeenteGeoJSON) return;
+  gemeenteGeoJSON.features.forEach((f, idx) => {
+    const gmc  = gemeenteIdMap[idx];
+    const data = gmc ? gemeenteData[gmc] : null;
+    for (const [mode, cfg] of Object.entries(CHOROPLETH_CONFIG)) {
+      f.properties[cfg.prop] = data ? (data[cfg.prop] ?? null) : null;
+    }
+    f.properties._naam = data?.Naam || window.gcdNameMap[gmc] || gmc || '';
+    f.properties._prov = data?.Provincie || '';
+    f.properties._pop  = data?.Population || 0;
+  });
+}
+
+function tryAddSources() {
+  if (!mapLoaded || !geoLoaded || !dataLoaded) return;
+  addSourcesAndLayers();
+  syncHoverStates();
+  renderLegend();
+}
+
+function addSourcesAndLayers() {
+  map.addSource('gemeenten', { type: 'geojson', data: gemeenteGeoJSON, generateId: true });
+
+  // Outlines added FIRST so buildChoroplethLayer can correctly insert the fill before them.
+  map.addLayer({
+    id: 'gemeente-outline', type: 'line', source: 'gemeenten',
+    paint: { 'line-color': '#555555', 'line-width': 0.4 },
+  });
+  map.addLayer({
+    id: 'gemeente-outline-hover', type: 'line', source: 'gemeenten',
+    paint: {
+      'line-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#c026d3', 'rgba(0,0,0,0)'],
+      'line-width': 2,
+    },
+  });
+
+  // Fill inserted before the outlines so outlines always render on top.
+  buildChoroplethLayer(activeChoropleth);
+
+  sourcesReady = true;
+  setupMapEvents();
+
+  // GeoJSON features are processed asynchronously by Maplibre; re-apply paint once
+  // the map is idle to guarantee the initial choropleth colours are visible.
+  map.once('idle', () => buildChoroplethLayer(activeChoropleth));
+}
+
+function buildChoroplethLayer(mode) {
+  const cfg    = CHOROPLETH_CONFIG[mode];
+  const values = Object.values(gemeenteData)
+    .map(d => d[cfg.prop])
+    .filter(v => v != null && !isNaN(v));
+  const breaks = computeQuantileBreaks(values, cfg.palette.length);
+
+  const colorExpr = ['case',
+    ['boolean', ['feature-state', 'selected'], false], '#c026d3',
+    ['==', ['get', cfg.prop], null], cfg.nullColor,
+    buildStepExpr(['get', cfg.prop], breaks, cfg.palette, cfg.nullColor)
+  ];
+
+  if (map.getLayer('gemeente-fill')) {
+    map.setPaintProperty('gemeente-fill', 'fill-color', colorExpr);
+  } else {
+    map.addLayer({
+      id: 'gemeente-fill', type: 'fill', source: 'gemeenten',
+      paint: { 'fill-color': colorExpr, 'fill-opacity': 0.68 },
+    }, 'gemeente-outline');
+  }
+}
+
+function buildStepExpr(prop, breaks, palette, nullColor) {
+  if (!breaks.length) return palette[0];
+  const expr = ['step', prop, palette[0]];
+  breaks.forEach((b, i) => { expr.push(b, palette[i + 1] || palette[palette.length - 1]); });
+  return expr;
+}
+
+function switchChoropleth(mode) {
+  activeChoropleth = mode;
+  if (sourcesReady) buildChoroplethLayer(mode);
+  renderLegend();
+  document.querySelectorAll('.seg-btn[data-choropleth]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.choropleth === mode);
+  });
+}
+
+function renderLegend() {
+  const legend = document.getElementById('map-legend');
+  if (!legend) return;
+  const cfg    = CHOROPLETH_CONFIG[activeChoropleth];
+  const values = Object.values(gemeenteData)
+    .map(d => d[cfg.prop])
+    .filter(v => v != null && !isNaN(v));
+  const breaks = computeQuantileBreaks(values, cfg.palette.length);
+  const labels = [
+    `< ${(breaks[0] || 0).toFixed(1)}${cfg.unit}`,
+    ...breaks.slice(1).map((b, i) => `${(breaks[i] || 0).toFixed(1)}–${b.toFixed(1)}${cfg.unit}`),
+    `≥ ${(breaks[breaks.length - 1] || 0).toFixed(1)}${cfg.unit}`,
+  ];
+  legend.innerHTML = `<div class="legend-title">${escapeHtml(cfg.label)}</div>` +
+    cfg.palette.map((color, i) =>
+      `<div><span class="legend-swatch" style="background:${color}"></span>${escapeHtml(labels[i] || '')}</div>`
+    ).join('');
+}
+
+function setupMapEvents() {
+  map.on('mousemove', 'gemeente-fill', e => {
+    if (!e.features.length) return;
+    const f    = e.features[0];
+    const idx  = f.id;
+    const gmc  = gemeenteIdMap[idx] || '';
+    const data = gmc ? gemeenteData[gmc] : null;
+    const cfg  = CHOROPLETH_CONFIG[activeChoropleth];
+    const val  = data ? data[cfg.prop] : null;
+    const naam = data?.Naam || window.gcdNameMap[gmc] || gmc || 'Unknown';
+    const prov = data?.Provincie || '';
+    const pop  = data ? (data.Population || 0).toLocaleString() : '';
+    const valStr = val != null ? `${val.toFixed(1)}${cfg.unit}` : '–';
+
+    popup.setLngLat(e.lngLat).setOffset([0, -8]).setHTML(
+      `<div><strong>${escapeHtml(naam)}</strong>${prov ? ` <span style="color:#888">· ${escapeHtml(prov)}</span>` : ''}</div>
+       <div style="font-size:.8rem;margin-top:2px;color:#555">${escapeHtml(cfg.label)}: <strong>${escapeHtml(valStr)}</strong>${pop ? ` · Pop. ${escapeHtml(pop)}` : ''}</div>`
+    ).addTo(map);
+    map.getCanvas().style.cursor = 'pointer';
+  });
+
+  map.on('mouseleave', 'gemeente-fill', () => {
+    popup.remove();
+    map.getCanvas().style.cursor = '';
+  });
+
+  map.on('click', 'gemeente-fill', e => {
+    if (!e.features.length) return;
+    const idx = e.features[0].id;
+    const gmc = gemeenteIdMap[idx];
+    if (!gmc) return;
+
+    if (selectedIds.has(gmc)) {
+      selectedIds.delete(gmc);
+      map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: false });
+    } else {
+      selectedIds.add(gmc);
+      map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: true });
+    }
+    updateSelectionInfo();
+    window.selectedIdsExcel = selectedIds;
+  });
+}
+
+function syncHoverStates() {
+  selectedIds.forEach(gmc => {
+    const idx = gemeenteGmToId[gmc];
+    if (idx !== undefined && sourcesReady) {
+      map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: true });
+    }
+  });
+}
+
+function updateSelectionInfo() {
+  const el = document.getElementById('selection-info');
+  if (el) el.textContent = selectedIds.size + ' gemeente' + (selectedIds.size !== 1 ? 'n' : '') + ' selected';
+}
+
+// ── Province filter
+document.querySelectorAll('#province-buttons input[type="checkbox"]').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const prov  = cb.value;
+    const label = document.querySelector(`label[for="${cb.id}"]`);
+    if (cb.checked) {
+      selectedProvinces.add(prov);
+      label.classList.add('selected');
+      Object.entries(gemeenteData)
+        .filter(([, d]) => d.Provincie === prov)
+        .forEach(([gmc]) => {
+          if (!selectedIds.has(gmc)) {
+            selectedIds.add(gmc);
+            if (sourcesReady) {
+              const idx = gemeenteGmToId[gmc];
+              if (idx !== undefined) map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: true });
+            }
+          }
+        });
+    } else {
+      selectedProvinces.delete(prov);
+      label.classList.remove('selected');
+      Array.from(selectedIds)
+        .filter(gmc => gemeenteData[gmc]?.Provincie === prov)
+        .forEach(gmc => {
+          selectedIds.delete(gmc);
+          if (sourcesReady) {
+            const idx = gemeenteGmToId[gmc];
+            if (idx !== undefined) map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: false });
+          }
+        });
+    }
+    updateSelectionInfo();
+    window.selectedIdsExcel = selectedIds;
+  });
+});
+
+// ── Clear
+document.getElementById('clear-selection-btn').addEventListener('click', () => {
+  selectedIds.forEach(gmc => {
+    const idx = gemeenteGmToId[gmc];
+    if (idx !== undefined && sourcesReady) map.setFeatureState({ source: 'gemeenten', id: idx }, { selected: false });
+  });
+  selectedIds.clear();
+  selectedProvinces.clear();
+  document.querySelectorAll('#province-buttons input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('#province-buttons label').forEach(l => l.classList.remove('selected'));
+  popup.remove();
+  updateSelectionInfo();
+});
+
+// ── Reset zoom
+document.getElementById('resetZoomBtn').addEventListener('click', () => fitNetherlands(true));
+
+// ── Choropleth switcher
+document.getElementById('choropleth-switcher').addEventListener('click', e => {
+  const btn = e.target.closest('.seg-btn[data-choropleth]');
+  if (!btn) return;
+  switchChoropleth(btn.dataset.choropleth);
+});
+
+// ── Open profile
+document.getElementById('build-profile-btn').addEventListener('click', () => {
+  if (!selectedIds.size) {
+    alert('Select at least one gemeente on the map first.');
+    return;
+  }
+  localStorage.setItem('profile_ids',        JSON.stringify(Array.from(selectedIds)));
+  localStorage.setItem('profile_zone_type',  currentZoneType);
+  localStorage.setItem('profile_choropleth', activeChoropleth);
+  localStorage.setItem('profile_gcd_names',  JSON.stringify(window.gcdNameMap || {}));
+  window.location.href = './profile.html';
+});
+
+// ── Geo error banner
+function showGeoError() {
+  hideLoading();
+  const msg = document.createElement('div');
+  msg.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#fff3cd;border:1px solid #ffc107;padding:12px 18px;border-radius:6px;z-index:9999;max-width:600px;font-size:13px;';
+  msg.innerHTML = '<strong>⚠ Gemeente boundaries could not be loaded from PDOK.</strong><br>Check your connection — the PDOK WFS service provides GeoJSON for all 342 Dutch gemeenten.';
+  document.getElementById('map').style.position = 'relative';
+  document.getElementById('map').appendChild(msg);
+}
+
+init();
+</script>
+</body>
+</html>

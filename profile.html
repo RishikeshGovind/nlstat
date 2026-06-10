@@ -1,0 +1,2009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>NLStat — Gemeente Profile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:ital,wght@0,400;0,500;0,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <script src="js/shared.js"></script>
+  <script src="js/cbs-loader.js"></script>
+  <style>
+    body { display: block; height: auto; min-height: 100vh; background: #f8fafc; }
+    #app-header {
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      display: flex; align-items: center; padding: 0 1.5rem;
+      height: 52px; gap: 1rem; position: sticky; top: 0; z-index: 200;
+    }
+    #app-header .back-link { color: var(--accent); text-decoration: none; font-size: .875rem; font-weight: 500; white-space: nowrap; }
+    #app-header .back-link:hover { text-decoration: underline; }
+    #app-header .header-divider { width: 1px; height: 20px; background: #e5e7eb; flex-shrink: 0; }
+    #app-header .header-title { flex: 1; font-size: .95rem; font-weight: 600; color: #111827; margin: 0; }
+    #app-header .header-badge { font-size: .72rem; color: #6b7280; white-space: nowrap; }
+
+    /* Summary / breakdown */
+    #summary-section {
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      padding: 14px 24px 12px;
+    }
+    .summary-row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+    .summary-left  { flex: 1; min-width: 200px; }
+    .summary-right { flex: 0 0 260px; }
+    .population-card {
+      background: var(--accent); color: #fff; border-radius: 12px;
+      padding: 1.1rem 1rem; text-align: center;
+      box-shadow: 0 4px 16px rgba(79,70,229,.2);
+    }
+    .population-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; opacity: .85; margin-bottom: .3rem; }
+    .population-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; font-family: 'JetBrains Mono', monospace; }
+    .summary-zones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .zone-chip { background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 5px; padding: 2px 8px; font-size: .75rem; color: #374151; }
+    .zone-chip.selected { background: #ede9fe; border-color: #a78bfa; color: #4f46e5; }
+
+    /* Toolbar */
+    #modal-toolbar {
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      display: flex; align-items: center; gap: .75rem;
+      padding: .5rem 1.25rem; position: sticky; top: 52px; z-index: 100; flex-wrap: wrap;
+    }
+    #drawer-tabs { display: flex; gap: .2rem; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; padding: .2rem; }
+    .view-tab {
+      background: transparent; border: none; color: #6b7280; border-radius: 4px;
+      padding: .3rem .75rem; font-size: .82rem; font-weight: 500; cursor: pointer;
+      box-shadow: none; transition: all .15s; white-space: nowrap;
+    }
+    .view-tab:hover { color: #111827; background: rgba(0,0,0,.04); }
+    .view-tab.selected { background: #fff; color: var(--accent); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    #drawer-actions { margin-left: auto; display: flex; gap: 6px; }
+    #drawer-actions button {
+      background: #f9fafb; border: 1px solid #e5e7eb; color: #374151;
+      border-radius: 5px; padding: .3rem .75rem; font-size: .8rem; font-weight: 500; cursor: pointer;
+      box-shadow: none; transition: all .15s; white-space: nowrap;
+    }
+    #drawer-actions button:hover { background: #f3f4f6; }
+
+    /* Tab panes */
+    .tab-pane { display: none; padding: 24px; }
+    .tab-pane.active { display: block; }
+
+    /* Domain cards */
+    .domain-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      padding: 1.1rem 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.05); margin-bottom: 1.1rem;
+    }
+    .domain-title {
+      font-size: .8rem; font-weight: 700; color: var(--accent); text-transform: uppercase;
+      letter-spacing: .06em; margin-bottom: .9rem;
+    }
+    /* CSS bar indicators */
+    /* Legacy bar rows (kept for fallback uses) */
+    .ind-row { margin-bottom: 10px; }
+    .ind-meta { display: flex; justify-content: space-between; font-size: .78rem; margin-bottom: 3px; }
+    .ind-label { font-weight: 600; color: #1e293b; }
+    .ind-values { color: #475569; display: flex; gap: 8px; }
+    .ind-val-sel { font-weight: 600; color: var(--accent); }
+    .ind-val-nl  { color: #dc2626; font-weight: 600; }
+    .bar-track { position: relative; height: 28px; background: #e8ecf0; border-radius: 6px; overflow: hidden; }
+    .bar-fill  { position: absolute; top: 0; left: 0; height: 100%; border-radius: 6px; transition: width .5s cubic-bezier(.4,0,.2,1); min-width: 3px; }
+    .bar-nl    { position: absolute; top: 0; bottom: 0; width: 3px; background: #dc2626; border-radius: 2px; transform: translateX(-50%); }
+
+    /* ── Dumbbell / dot-plot rows ── */
+    .db { margin-bottom: 1.1rem; }
+    .db-lbl { font-size: .78rem; font-weight: 600; color: #1e293b; margin-bottom: 7px; }
+    .db-axis { height: 2px; background: #e2e8f0; border-radius: 2px; position: relative; margin: 9px 0; }
+    .db-line { position: absolute; height: 2px; top: 0; }
+    .db-dot  { position: absolute; width: 13px; height: 13px; border-radius: 50%; top: -5.5px; transform: translateX(-50%); border: 2.5px solid #fff; cursor: default; }
+    .db-a    { background: #4f46e5; box-shadow: 0 0 0 1.5px #4f46e5; }
+    .db-b    { background: #dc2626; box-shadow: 0 0 0 1.5px #dc2626; }
+    .db-foot { display: flex; justify-content: space-between; font-size: .71rem; margin-top: 1px; }
+    .db-av   { color: #4f46e5; font-weight: 700; }
+    .db-bv   { color: #dc2626; font-weight: 700; }
+    .db-legend { display: flex; gap: 14px; font-size: .7rem; color: #6b7280; margin-bottom: 12px; }
+    .db-legend span { display: flex; align-items: center; gap: 4px; }
+    .db-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+    /* ── Waffle chart ── */
+    .waffle-wrap { display: inline-flex; flex-direction: column; align-items: center; gap: 5px; }
+    .waffle-grid { display: grid; grid-template-columns: repeat(10, 14px); grid-template-rows: repeat(10, 14px); gap: 2.5px; }
+    .wf { border-radius: 2px; }
+    .waffle-val  { font-size: .82rem; font-weight: 700; }
+    .waffle-lbl  { font-size: .68rem; color: #6b7280; text-align: center; }
+    .waffle-row  { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: .5rem; }
+
+    .viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+    .viz-card {
+      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+      border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px;
+    }
+    .viz-card h4 { margin: 0 0 8px; font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: #475569; }
+    .viz-card p { margin: 6px 0 0; font-size: .72rem; color: #64748b; line-height: 1.45; }
+    .unit-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+    .unit-cell {
+      aspect-ratio: 1; border-radius: 3px; background: #e2e8f0;
+      border: 1px solid transparent; box-sizing: border-box;
+    }
+    .unit-cell.is-filled { background: var(--cell-color, var(--accent)); }
+    .unit-cell.is-nl { border-color: #111827; }
+    .unit-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 8px; }
+    .unit-label { font-size: .72rem; font-weight: 600; color: #0f172a; }
+    .unit-value { font-size: .8rem; font-weight: 700; color: var(--cell-color, var(--accent)); }
+    .unit-sub { font-size: .67rem; color: #64748b; margin-top: 4px; }
+
+    .bullet-stack { display: flex; flex-direction: column; gap: 12px; }
+    .bullet-row { display: grid; grid-template-columns: minmax(170px, 220px) 1fr; gap: 10px; align-items: center; }
+    .bullet-label { font-size: .75rem; font-weight: 600; color: #0f172a; }
+    .bullet-value { font-size: .69rem; color: #64748b; margin-top: 3px; }
+    .bullet-track {
+      position: relative; height: 16px; border-radius: 999px; overflow: hidden;
+      background: linear-gradient(90deg, #ecfccb 0 35%, #fef3c7 35% 70%, #fee2e2 70% 100%);
+    }
+    .bullet-fill {
+      position: absolute; top: 3px; left: 0; bottom: 3px; border-radius: 999px;
+      background: var(--bullet-color, #4f46e5); opacity: .85;
+    }
+    .bullet-nl {
+      position: absolute; top: 0; bottom: 0; width: 2px; background: #111827;
+      transform: translateX(-50%);
+    }
+    .bullet-target {
+      position: absolute; top: 2px; bottom: 2px; width: 1px; background: rgba(15,23,42,.25);
+      transform: translateX(-50%);
+    }
+
+    .ternary-wrap { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 18px; align-items: start; }
+    .ternary-note { font-size: .72rem; color: #64748b; line-height: 1.5; }
+    .series-list { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+    .series-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .7rem; color: #334155; }
+    .series-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    .paired-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    .mini-treemap { display: flex; gap: 4px; height: 92px; margin-bottom: 10px; }
+    .mini-tile {
+      position: relative; border-radius: 8px; padding: 8px; display: flex; flex-direction: column;
+      justify-content: flex-end; overflow: hidden; min-width: 36px;
+    }
+    .mini-tile span { color: rgba(255,255,255,.95); font-size: .66rem; font-weight: 600; line-height: 1.2; }
+    .mini-tile strong { color: #fff; font-size: .88rem; }
+
+    .scatter-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 10px; font-size: .7rem; color: #475569; }
+    .stat-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .stat-chip {
+      padding: 5px 8px; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0;
+      font-size: .7rem; color: #334155;
+    }
+
+    .lane-stack { display: flex; flex-direction: column; gap: 14px; }
+    .lane-row { display: grid; grid-template-columns: minmax(170px, 220px) 1fr; gap: 12px; align-items: center; }
+    .lane-title { font-size: .75rem; font-weight: 600; color: #0f172a; }
+    .lane-sub { font-size: .68rem; color: #64748b; margin-top: 3px; }
+    .lane-axis { position: relative; height: 28px; }
+    .lane-axis::before {
+      content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px;
+      transform: translateY(-50%); background: #dbe4ee; border-radius: 999px;
+    }
+    .lane-tick {
+      position: absolute; top: 4px; bottom: 4px; width: 2px; background: #111827;
+      transform: translateX(-50%);
+    }
+    .lane-point {
+      position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+      transform: translate(-50%, -50%); border: 2px solid #fff;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.7);
+    }
+    .badge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .context-badge {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;
+    }
+    .context-badge strong { display: block; font-size: .88rem; color: #0f172a; }
+    .context-badge span { font-size: .7rem; color: #64748b; }
+
+    .coxcomb-wrap { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 18px; align-items: start; }
+    .coxcomb-note { font-size: .72rem; color: #64748b; line-height: 1.5; }
+
+    .swarm-wrap { width: 100%; overflow-x: auto; }
+
+    /* ── Age / population chart ── */
+    .age-chart { display: flex; flex-direction: column; gap: 5px; }
+    .age-row   { display: flex; align-items: center; height: 26px; gap: 0; }
+    .age-lbl   { font-size: .7rem; color: #374151; width: 68px; text-align: center; flex-shrink: 0; font-weight: 500; }
+    .age-left  { flex: 1; display: flex; justify-content: flex-end; }
+    .age-right { flex: 1; }
+    .age-bar-l { height: 20px; background: #818cf8; border-radius: 3px 0 0 3px; transition: width .5s; position: relative; }
+    .age-bar-r { height: 20px; background: #f87171; border-radius: 0 3px 3px 0; transition: width .5s; }
+    .age-bar-nl { height: 20px; background: rgba(220,38,38,.18); border-left: 2px solid #dc2626; }
+    .age-pct   { font-size: .65rem; color: #6b7280; width: 32px; text-align: right; flex-shrink: 0; }
+    .age-pct-r { font-size: .65rem; color: #6b7280; width: 32px; text-align: left; flex-shrink: 0; }
+
+    /* ── Treemap tiles ── */
+    .treemap-row { display: flex; gap: 4px; height: 90px; border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+    .treemap-tile {
+      display: flex; flex-direction: column; justify-content: flex-end;
+      padding: 7px 9px; border-radius: 6px; overflow: hidden;
+      transition: flex-basis .5s; cursor: default;
+    }
+    .treemap-tile-lbl { font-size: .67rem; font-weight: 600; color: rgba(255,255,255,.9); line-height: 1.3; }
+    .treemap-tile-val { font-size: .88rem; font-weight: 700; color: #fff; }
+
+    /* ── Dot strip plot (Explorer) ── */
+    .strip-wrap { width: 100%; overflow: hidden; }
+    .strip-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: .7rem; margin-bottom: 8px; }
+
+    /* Summary stat strips */
+    .kpi-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 1.25rem; }
+    .kpi-card {
+      flex: 1 1 120px; background: #fff; border: 1px solid #e5e7eb;
+      border-radius: 10px; border-left: 4px solid var(--accent); padding: 10px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    .kpi-value { font-size: 1.45rem; font-weight: 700; color: #111827; line-height: 1.2; font-family: 'JetBrains Mono', monospace; }
+    .kpi-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; margin-top: 3px; }
+
+    /* Inequality highlight cards */
+    .ineq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 1.25rem; }
+    .ineq-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      padding: 14px 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .ineq-icon  { font-size: 1.5rem; margin-bottom: 2px; }
+    .ineq-val   { font-size: 1.8rem; font-weight: 700; color: #dc2626; font-family: 'JetBrains Mono', monospace; line-height: 1.1; }
+    .ineq-label { font-size: .72rem; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+    .ineq-nl    { font-size: .75rem; color: #9ca3af; margin-top: 2px; }
+
+    /* Education stacked bar */
+    .edu-stacked { height: 28px; display: flex; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+    .edu-seg     { display: flex; align-items: center; justify-content: center; font-size: .68rem; font-weight: 600; color: #fff; transition: width .5s; }
+
+    /* Typology */
+    .typology-k-row { display: flex; gap: 8px; margin-bottom: 1.25rem; align-items: center; flex-wrap: wrap; }
+    .k-btn { padding: .3rem .75rem; border: 1.5px solid var(--accent); border-radius: 5px; background: #fff; color: var(--accent); font-size: .82rem; font-weight: 600; cursor: pointer; }
+    .k-btn.active { background: var(--accent); color: #fff; }
+    #run-typology-btn { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: .4rem 1rem; font-size: .85rem; font-weight: 600; cursor: pointer; }
+    #run-typology-btn:hover { background: var(--accent-hover); }
+
+    .cluster-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      overflow: hidden; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+      display: flex;
+    }
+    .cluster-accent { width: 5px; flex-shrink: 0; }
+    .cluster-inner  { flex: 1; padding: 14px 18px; min-width: 0; }
+    .cluster-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .cluster-dot    { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .cluster-name   { font-weight: 700; font-size: .92rem; color: #111827; }
+    .cluster-count  { font-size: .72rem; color: #6b7280; background: #f1f5f9; border-radius: 12px; padding: 1px 8px; }
+    .cluster-zones  { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+    .cluster-zone-chip { font-size: .72rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 7px; color: #334155; }
+    .cluster-stats  { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .cs-item { background: #f8fafc; border-radius: 6px; padding: 6px 10px; }
+    .cs-val  { font-size: .9rem; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+    .cs-lbl  { font-size: .65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* Analysis — z-score bars */
+    .analysis-header { font-size: 1rem; font-weight: 700; color: #111827; margin-bottom: 6px; }
+    .analysis-sub    { font-size: .82rem; color: #6b7280; margin-bottom: 1.25rem; }
+    .zscore-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .zscore-label { font-size: .78rem; color: #374151; width: 200px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .zscore-bar-wrap { flex: 1; position: relative; height: 18px; background: #f1f5f9; border-radius: 4px; }
+    .zscore-bar-fill { position: absolute; top: 0; height: 100%; border-radius: 4px; transition: width .4s; }
+    .zscore-bar-zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #94a3b8; border-radius: 2px; transform: translateX(-50%); }
+    .zscore-val  { font-size: .75rem; font-weight: 700; width: 44px; text-align: right; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+    .zscore-pos  { color: #dc2626; }
+    .zscore-neg  { color: #16a34a; }
+    .zscore-neutral { color: #6b7280; }
+
+    /* Source footer */
+    .drawer-source {
+      font-size: .75rem; color: #9ca3af; padding: 1.5rem 1.5rem 2rem; border-top: 1px solid #e5e7eb; text-align: center;
+    }
+    .drawer-source a { color: #6b7280; text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<header id="app-header">
+  <a href="./index.html" class="back-link">← Map</a>
+  <div class="header-divider"></div>
+  <h1 class="header-title">NLStat — Gemeente Profile</h1>
+  <span class="header-badge">CBS 85039NED · 2022</span>
+</header>
+
+<!-- Summary -->
+<div id="summary-section">
+  <div class="summary-row">
+    <div class="summary-left">
+      <h2 id="profile-title" contenteditable="true" spellcheck="false"
+          style="font-size:1.15rem;font-weight:700;color:#111827;margin-bottom:8px;outline:none;"
+          title="Click to edit title">Click to edit title</h2>
+      <div id="summary-zones" class="summary-zones"><!-- injected --></div>
+    </div>
+    <div class="summary-right">
+      <div class="population-card">
+        <div class="population-label">Total population</div>
+        <div class="population-value" id="total-pop">–</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div id="modal-toolbar">
+  <div id="drawer-tabs">
+    <button class="view-tab selected" data-tab="demographics">Demographics</button>
+    <button class="view-tab" data-tab="inequality">Inequality</button>
+    <button class="view-tab" data-tab="humancapital">Human Capital</button>
+    <button class="view-tab" data-tab="housing">Housing</button>
+    <button class="view-tab" data-tab="incomewealth">Income & Wealth</button>
+    <button class="view-tab" data-tab="services">Services</button>
+    <button class="view-tab" data-tab="welfarecare">Welfare</button>
+    <button class="view-tab" data-tab="economy">Economy</button>
+    <button class="view-tab" data-tab="environment">Environment</button>
+    <button class="view-tab" data-tab="explorer">Explorer</button>
+    <button class="view-tab" data-tab="typology">Typology</button>
+    <button class="view-tab" data-tab="analysis">Analysis</button>
+  </div>
+  <div id="drawer-actions">
+    <button onclick="downloadExcel()">⬇ Excel</button>
+  </div>
+</div>
+
+<!-- ══ TAB: DEMOGRAPHICS ══ -->
+<div id="tab-demographics" class="tab-pane active">
+  <div class="kpi-row" id="demo-kpis"><!-- injected --></div>
+  <div id="demo-age-card" class="domain-card">
+    <div class="domain-title">Age Structure</div>
+    <div id="demo-age-bars"><!-- injected --></div>
+  </div>
+  <div id="demo-gender-card" class="domain-card">
+    <div class="domain-title">Gender</div>
+    <div id="demo-gender-bars"><!-- injected --></div>
+  </div>
+  <div id="demo-migration-card" class="domain-card">
+    <div class="domain-title">Migration Background</div>
+    <div id="demo-migration-bars"><!-- injected --></div>
+  </div>
+  <div id="demo-household-card" class="domain-card">
+    <div class="domain-title">Household Composition</div>
+    <div id="demo-household-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: INEQUALITY ══ -->
+<div id="tab-inequality" class="tab-pane">
+  <div class="ineq-grid" id="ineq-cards"><!-- injected --></div>
+  <div id="ineq-detail-card" class="domain-card">
+    <div class="domain-title">Inequality Indicators vs Netherlands Average</div>
+    <div id="ineq-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card" style="background:#fffbeb;border-color:#fde68a;">
+    <div class="domain-title" style="color:#92400e;">Research Context — KansenKloof</div>
+    <p style="font-size:.82rem;color:#78350f;line-height:1.65;">
+      These indicators directly map to the <em>kansengelijkheid</em> research agenda at Erasmus School of Economics.
+      The KansenKaart / KansenKloof platform by <strong>Bas ter Weel, Eline Vlam, and Rineke Smilde</strong>
+      documents inequality of opportunity across the Netherlands.
+      High bijstand + low education + high long-term poverty is the core vulnerability cluster their research identifies.
+    </p>
+  </div>
+</div>
+
+<!-- ══ TAB: HUMAN CAPITAL ══ -->
+<div id="tab-humancapital" class="tab-pane">
+  <div class="kpi-row" id="hc-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Education Attainment</div>
+    <div id="hc-edu-section"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Labour Market</div>
+    <div id="hc-labour-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: HOUSING ══ -->
+<div id="tab-housing" class="tab-pane">
+  <div class="kpi-row" id="housing-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Ownership & Tenure</div>
+    <div id="housing-tenure-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Building Stock & Household Profile</div>
+    <div id="housing-stock-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: INCOME & WEALTH ══ -->
+<div id="tab-incomewealth" class="tab-pane">
+  <div class="kpi-row" id="iw-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Income Distribution</div>
+    <div id="iw-income-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card" style="background:#f0fdf4;border-color:#bbf7d0;">
+    <div class="domain-title" style="color:#166534;">Income Quintile Spread</div>
+    <div id="iw-quintile-chart"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: SERVICES ACCESSIBILITY ══ -->
+<div id="tab-services" class="tab-pane">
+  <div class="kpi-row" id="svc-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Distance to Key Services</div>
+    <div id="svc-distance-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Context</div>
+    <div id="svc-context"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: WELFARE & CARE ══ -->
+<div id="tab-welfarecare" class="tab-pane">
+  <div class="kpi-row" id="wc-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Care & Benefit Recipients</div>
+    <div id="wc-care-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Poverty Thresholds</div>
+    <div id="wc-poverty-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: ECONOMY & BUSINESS ══ -->
+<div id="tab-economy" class="tab-pane">
+  <div class="kpi-row" id="eco-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Business Sector Mix</div>
+    <div id="eco-sector-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Mobility</div>
+    <div id="eco-mobility-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: ENVIRONMENT ══ -->
+<div id="tab-environment" class="tab-pane">
+  <div class="kpi-row" id="env-kpis"><!-- injected --></div>
+  <div class="domain-card">
+    <div class="domain-title">Energy Consumption</div>
+    <div id="env-energy-bars"><!-- injected --></div>
+  </div>
+  <div class="domain-card">
+    <div class="domain-title">Land & Water Profile</div>
+    <div id="env-land-bars"><!-- injected --></div>
+  </div>
+</div>
+
+<!-- ══ TAB: INDICATOR EXPLORER ══ -->
+<div id="tab-explorer" class="tab-pane">
+  <p style="font-size:.85rem;color:#6b7280;margin-bottom:1rem;">
+    Browse any indicator across all 352 municipalities. Inspired by the NISRA Equality Matters approach of
+    combining measures with geographic dimensions.
+  </p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1.25rem;align-items:center;">
+    <div>
+      <label style="font-size:.78rem;font-weight:600;color:#374151;display:block;margin-bottom:3px;">Indicator</label>
+      <select id="explorer-indicator" style="font-size:.82rem;padding:.3rem .6rem;border:1px solid #d1d5db;border-radius:6px;min-width:260px;"></select>
+    </div>
+    <div>
+      <label style="font-size:.78rem;font-weight:600;color:#374151;display:block;margin-bottom:3px;">Province filter</label>
+      <select id="explorer-province" style="font-size:.82rem;padding:.3rem .6rem;border:1px solid #d1d5db;border-radius:6px;">
+        <option value="">All provinces</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:.78rem;font-weight:600;color:#374151;display:block;margin-bottom:3px;">Urbanisation</label>
+      <select id="explorer-urban" style="font-size:.82rem;padding:.3rem .6rem;border:1px solid #d1d5db;border-radius:6px;">
+        <option value="">All</option>
+        <option value="1,2">Urban (1–2)</option>
+        <option value="3">Moderate (3)</option>
+        <option value="4,5">Rural (4–5)</option>
+      </select>
+    </div>
+  </div>
+  <div id="explorer-result"><!-- injected --></div>
+</div>
+
+<!-- ══ TAB: TYPOLOGY / CLUSTERING ══ -->
+<div id="tab-typology" class="tab-pane">
+  <p style="font-size:.85rem;color:#6b7280;margin-bottom:1rem;">
+    K-means clustering groups the selected gemeenten by their socioeconomic fingerprint across
+    ~70 CBS indicators. Each cluster is mapped to Dutch policy-relevant traits, challenges, and opportunities.
+    <em>First run may take 30–60 s while the API warms up.</em>
+  </p>
+  <div class="typology-k-row">
+    <span style="font-size:.82rem;font-weight:600;color:#374151;">Clusters:</span>
+    <button class="k-btn active" data-k="auto">Auto</button>
+    <button class="k-btn" data-k="2">2</button>
+    <button class="k-btn" data-k="3">3</button>
+    <button class="k-btn" data-k="4">4</button>
+    <button class="k-btn" data-k="5">5</button>
+    <button id="run-typology-btn">Run Typology</button>
+  </div>
+  <div id="typology-result">
+    <p style="font-size:.85rem;color:#9ca3af;">Select gemeenten on the map, then click <strong>Run Typology</strong>.</p>
+  </div>
+</div>
+
+<!-- ══ TAB: ANALYSIS ══ -->
+<div id="tab-analysis" class="tab-pane">
+  <div class="analysis-header">Z-score Analysis vs Netherlands Average</div>
+  <p class="analysis-sub">
+    Shows how each selected gemeente deviates from the national mean. Red = above NL average, Green = below.
+    Bars are proportional to standard deviation units (z-scores).
+  </p>
+  <div id="analysis-gemeente-select" style="margin-bottom:1.25rem;"><!-- injected --></div>
+  <div id="analysis-result"><!-- injected --></div>
+</div>
+
+<div class="drawer-source">
+  Data: <a href="https://opendata.cbs.nl" target="_blank">CBS StatLine</a> · Dataset 85039NED (Kerncijfers wijken en buurten 2022) ·
+  Boundaries: <a href="https://pdok.nl" target="_blank">PDOK / CBS gebiedsindelingen 2023</a> ·
+  Built with NLStat — <a href="https://github.com/RishikeshGovind" target="_blank">github.com/RishikeshGovind</a>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   Profile page bootstrap
+   ════════════════════════════════════════════════════════════════ */
+const selectedIds   = JSON.parse(localStorage.getItem('profile_ids')     || '[]');
+const gcdNameMap    = JSON.parse(localStorage.getItem('profile_gcd_names') || '{}');
+let   gemeenteData  = {};
+let   nlTotals      = {};
+let   activeTab     = 'demographics';
+let   activeK       = 'auto';
+// Replace with your HuggingFace Space URL after deploying api/
+const TYPOLOGY_API  = 'https://YOUR-HF-USERNAME-nlstat-typology-api.hf.space';
+const ALL_DOMAINS   = ['Demographics','Inequality','HumanCapital','Housing','IncomeWealth','Services','WelfareCare','Economy','Environment'];
+
+// ── Restore names to chip labels
+function gemeenteName(gmc) {
+  const data = gemeenteData[gmc];
+  return data?.Naam || gcdNameMap[gmc] || gmc;
+}
+
+// ── Boot: load CBS data
+loadNLStatData(null, () => {}).then(data => {
+  gemeenteData = data.Gemeente    || {};
+  nlTotals     = data['Netherlands Total'] || {};
+  window.nlTotals     = nlTotals;
+  window.gemeenteData = gemeenteData;
+  renderProfile();
+});
+
+// ── Tab switching
+document.querySelectorAll('.view-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('selected'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('selected');
+    const pane = document.getElementById('tab-' + tab.dataset.tab);
+    if (pane) pane.classList.add('active');
+    activeTab = tab.dataset.tab;
+
+    if (activeTab === 'analysis')     renderAnalysis();
+    if (activeTab === 'housing')      renderHousingTab(aggregateSelected(selectedIds));
+    if (activeTab === 'incomewealth') renderIncomeWealthTab(aggregateSelected(selectedIds));
+    if (activeTab === 'services')     renderServicesTab(aggregateSelected(selectedIds));
+    if (activeTab === 'welfarecare')  renderWelfareCareTab(aggregateSelected(selectedIds));
+    if (activeTab === 'economy')      renderEconomyTab(aggregateSelected(selectedIds));
+    if (activeTab === 'environment')  renderEnvironmentTab(aggregateSelected(selectedIds));
+    if (activeTab === 'explorer')     renderExplorerTab();
+  });
+});
+
+// ── K selector
+document.querySelectorAll('.k-btn[data-k]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.k-btn[data-k]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeK = btn.dataset.k === 'auto' ? 'auto' : parseInt(btn.dataset.k);
+  });
+});
+
+// ── Run typology
+document.getElementById('run-typology-btn').addEventListener('click', runTypology);
+
+// ── Pre-warm the API on page load so it's ready when user clicks
+setTimeout(() => fetch(`${TYPOLOGY_API}/health`).catch(() => {}), 2000);
+
+/* ════════════════════════════════════════════════════════
+   RENDER PROFILE
+   ════════════════════════════════════════════════════════ */
+function renderProfile() {
+  if (!selectedIds.length) {
+    document.getElementById('summary-section').innerHTML = '<p style="padding:1rem;color:#6b7280;">No gemeenten selected. <a href="./index.html">Go back to the map.</a></p>';
+    return;
+  }
+
+  // ── Summary
+  const zones     = document.getElementById('summary-zones');
+  zones.innerHTML = selectedIds.map(gmc =>
+    `<span class="zone-chip selected">${escapeHtml(gemeenteName(gmc))}</span>`
+  ).join('');
+
+  const totalPop = selectedIds.reduce((s, gmc) => s + (gemeenteData[gmc]?.Population || 0), 0);
+  document.getElementById('total-pop').textContent = totalPop.toLocaleString();
+
+  // ── Aggregate (mean across selected)
+  const agg = aggregateSelected(selectedIds);
+
+  renderDemographicsTab(agg);
+  renderInequalityTab(agg);
+  renderHumanCapitalTab(agg);
+  // Housing/IncomeWealth/Services rendered lazily on tab switch (they mount when first visited)
+}
+
+/* ── Aggregate: mean of all indicators across selected gemeenten */
+function aggregateSelected(ids) {
+  const sums = Object.fromEntries(ALL_DOMAINS.map(d => [d, {}]));
+  const cnts = Object.fromEntries(ALL_DOMAINS.map(d => [d, {}]));
+
+  for (const gmc of ids) {
+    const d = gemeenteData[gmc];
+    if (!d) continue;
+    for (const domain of ALL_DOMAINS) {
+      for (const [ind, val] of Object.entries(d[domain] || {})) {
+        if (typeof val !== 'number') continue;
+        sums[domain][ind] = (sums[domain][ind] || 0) + val;
+        cnts[domain][ind] = (cnts[domain][ind] || 0) + 1;
+      }
+    }
+  }
+
+  const agg = Object.fromEntries(ALL_DOMAINS.map(d => [d, {}]));
+  for (const domain of ALL_DOMAINS) {
+    for (const [ind, sum] of Object.entries(sums[domain])) {
+      agg[domain][ind] = parseFloat((sum / cnts[domain][ind]).toFixed(2));
+    }
+  }
+  return agg;
+}
+
+/* ════════════ DEMOGRAPHICS TAB ════════════ */
+function renderDemographicsTab(agg) {
+  const d  = agg.Demographics || {};
+  const nl = nlTotals.Demographics || {};
+
+  // KPIs
+  const kpis = [
+    { label: 'Under 15',    val: d['Under 15 years (%)']           != null ? d['Under 15 years (%)'].toFixed(1) + '%'           : '–', accent: '#4f46e5' },
+    { label: '65+',         val: d['65+ years (%)']                != null ? d['65+ years (%)'].toFixed(1) + '%'                : '–', accent: '#7c3aed' },
+    { label: 'Non-Western', val: d['Non-Western background (%)']   != null ? d['Non-Western background (%)'].toFixed(1) + '%'   : '–', accent: '#2563eb' },
+    { label: 'Density',     val: d['Population density (per km²)'] != null ? d['Population density (per km²)'].toLocaleString() + '/km²' : '–', accent: '#0891b2' },
+  ];
+  document.getElementById('demo-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}">
+      <div class="kpi-value">${escapeHtml(k.val)}</div>
+      <div class="kpi-label">${escapeHtml(k.label)}</div>
+    </div>`).join('');
+
+  const ageBands = [
+    { label: 'Under 15', key: 'Under 15 years (%)', color: '#2563eb' },
+    { label: '15-24',    key: '15-24 years (%)',    color: '#0ea5e9' },
+    { label: '25-44',    key: '25-44 years (%)',    color: '#14b8a6' },
+    { label: '45-64',    key: '45-64 years (%)',    color: '#f97316' },
+    { label: '65+',      key: '65+ years (%)',      color: '#dc2626' },
+  ];
+  const sexBands = [
+    { label: 'Male',   key: 'Male (%)',   color: '#4f46e5' },
+    { label: 'Female', key: 'Female (%)', color: '#ec4899' },
+  ];
+  const backgroundBands = [
+    { label: 'Non-Western', key: 'Non-Western background (%)', color: '#2563eb' },
+    { label: 'Western',     key: 'Western background (%)',     color: '#7c3aed' },
+  ];
+  const maritalBands = [
+    { label: 'Single-person', key: 'Single-person households (%)', color: '#0f766e' },
+    { label: 'Married',       key: 'Married (%)',                  color: '#f97316' },
+    { label: 'Unmarried',     key: 'Unmarried (%)',                color: '#dc2626' },
+    { label: 'Divorced',      key: 'Divorced (%)',                 color: '#8b5cf6' },
+    { label: 'Widowed',       key: 'Widowed (%)',                  color: '#475569' },
+  ].filter(item => d[item.key] != null || nl[item.key] != null);
+
+  const waffleOpts = { scale: 1, suffix: '1 square = 1%' };
+
+  // Age structure (5 bands)
+  const ageCards = ageBands.map(item =>
+    buildUnitGridCard(item.label, d[item.key], nl[item.key], item.color, { ...waffleOpts, fmtKey: item.key })
+  ).join('');
+  document.getElementById('demo-age-bars').innerHTML = ageCards
+    ? `<div class="viz-grid">${ageCards}</div>
+       <p style="font-size:.72rem;color:#64748b;margin-top:10px;">Filled cells show the selected municipality average. Thin black cell outlines mark the Netherlands average.</p>`
+    : '<p style="color:#9ca3af;font-size:.82rem;">No age data available.</p>';
+
+  const smallGrid = 'style="grid-template-columns: repeat(auto-fill, minmax(170px, 200px));"';
+
+  // Gender (2 bands)
+  document.getElementById('demo-gender-bars').innerHTML =
+    `<div class="viz-grid" ${smallGrid}>${sexBands.map(item =>
+      buildUnitGridCard(item.label, d[item.key], nl[item.key], item.color, { ...waffleOpts, fmtKey: item.key })
+    ).join('')}</div>`;
+
+  // Migration background (2 bands)
+  document.getElementById('demo-migration-bars').innerHTML =
+    `<div class="viz-grid" ${smallGrid}>${backgroundBands.map(item =>
+      buildUnitGridCard(item.label, d[item.key], nl[item.key], item.color, { ...waffleOpts, fmtKey: item.key })
+    ).join('')}</div>`;
+
+  // Household composition (marital status + vital stats badges)
+  document.getElementById('demo-household-bars').innerHTML = `
+    ${maritalBands.length ? `<div class="viz-grid" style="margin-bottom:12px;">${maritalBands.map(item =>
+      buildUnitGridCard(item.label, d[item.key], nl[item.key], item.color, { ...waffleOpts, fmtKey: item.key })
+    ).join('')}</div>` : ''}
+    <div class="badge-grid">
+      ${buildContextBadge('Birth rate', d['Birth rate (per 1000)'], nl['Birth rate (per 1000)'], 'Births per 1,000 residents', 'Birth rate (per 1000)')}
+      ${buildContextBadge('Mortality rate', d['Mortality rate (per 1000)'], nl['Mortality rate (per 1000)'], 'Deaths per 1,000 residents', 'Mortality rate (per 1000)')}
+      ${buildContextBadge('Avg household size', d['Avg household size'], nl['Avg household size'], 'Average persons per household', 'Avg household size')}
+    </div>`;
+}
+
+/* ════════════ INEQUALITY TAB ════════════ */
+function renderInequalityTab(agg) {
+  const d  = agg.Inequality;
+  const nl = nlTotals.Inequality || {};
+
+  document.getElementById('ineq-cards').innerHTML = `
+    <div class="viz-card">
+      <h4>Poverty pressure</h4>
+      <div class="ineq-val">${fmtUnit('Low income threshold (%)', d['Low income threshold (%)'])}</div>
+      <div class="ineq-label">Below low-income threshold</div>
+      <div class="ineq-nl">NL ${fmtUnit('Low income threshold (%)', nl['Low income threshold (%)'])}</div>
+    </div>
+    <div class="viz-card">
+      <h4>Support dependency</h4>
+      <div class="ineq-val" style="color:#f97316;">${fmtUnit('Bijstand recipients (per 1k)', d['Bijstand recipients (per 1k)'])}</div>
+      <div class="ineq-label">Bijstand recipients</div>
+      <div class="ineq-nl">NL ${fmtUnit('Bijstand recipients (per 1k)', nl['Bijstand recipients (per 1k)'])}</div>
+    </div>
+    <div class="viz-card">
+      <h4>Income concentration</h4>
+      <div class="ineq-val" style="color:#7c3aed;">${fmtUnit('Top-20% income share (%)', d['Top-20% income share (%)'])}</div>
+      <div class="ineq-label">Top-20% income share</div>
+      <div class="ineq-nl">NL ${fmtUnit('Top-20% income share (%)', nl['Top-20% income share (%)'])}</div>
+    </div>`;
+
+  const indicators = [
+    ['Low income threshold (%)', '#dc2626'],
+    ['At-or-below social minimum (%)', '#f97316'],
+    ['Bijstand recipients (per 1k)', '#7c3aed'],
+    ['Youth welfare (%)', '#0891b2'],
+    ['Bottom-40% income share (%)', '#16a34a'],
+    ['Top-20% income share (%)', '#be123c'],
+    ['Near-poverty 110% (%)', '#ef4444'],
+    ['Near-poverty 120% (%)', '#f59e0b'],
+  ].filter(([key]) => d[key] != null || nl[key] != null);
+  document.getElementById('ineq-bars').innerHTML = indicators.length
+    ? `<div class="bullet-stack">${indicators.map(([key, color]) =>
+        buildBulletStrip(key, d[key], nl[key], {
+          color,
+          max: niceMax([d[key], nl[key], key.includes('per 1k') ? 80 : 40]),
+          target: key.includes('Near-poverty 120') ? 20 : key.includes('Near-poverty 110') ? 15 : null,
+        })
+      ).join('')}</div>`
+    : '<p style="color:#9ca3af;font-size:.82rem;">No inequality data available.</p>';
+}
+
+/* ════════════ HUMAN CAPITAL TAB ════════════ */
+function renderHumanCapitalTab(agg) {
+  const d  = agg.HumanCapital;
+  const nl = nlTotals.HumanCapital || {};
+
+  // KPIs
+  const kpis = [
+    { label: 'High education', val: d['High education (%)']       != null ? d['High education (%)'].toFixed(1) + '%'       : '–', accent: '#0891b2' },
+    { label: 'Labour part.',   val: d['Labour participation (%)']  != null ? d['Labour participation (%)'].toFixed(1) + '%' : '–', accent: '#16a34a' },
+    { label: 'Self-employed',  val: d['Self-employed (% of workforce)'] != null ? d['Self-employed (% of workforce)'].toFixed(1) + '%' : '–', accent: '#f97316' },
+  ];
+  document.getElementById('hc-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}">
+      <div class="kpi-value">${escapeHtml(k.val)}</div>
+      <div class="kpi-label">${escapeHtml(k.label)}</div>
+    </div>`).join('');
+
+  const EDU_KEYS   = ['Low education (%)', 'Medium education (%)', 'High education (%)'];
+  const EDU_COLORS = ['#dc2626', '#f59e0b', '#0891b2'];
+  const EDU_LABELS = ['Low', 'Medium', 'High'];
+  const ternarySeries = getSelectedSeries('HumanCapital', EDU_KEYS)
+    .filter(item => EDU_KEYS.every(key => item.data[key] != null));
+
+  const makeEduBar = (data, name, isNL) => {
+    const total = EDU_KEYS.reduce((s, k) => s + (data[k] || 0), 0) || 1;
+    const segs = EDU_KEYS.map((k, i) => {
+      const pct = (data[k] || 0) / total * 100;
+      return `<div class="edu-seg" style="width:${pct.toFixed(1)}%;background:${EDU_COLORS[i]};" title="${EDU_LABELS[i]}: ${pct.toFixed(1)}%">
+        ${pct >= 9 ? pct.toFixed(0) + '%' : ''}
+      </div>`;
+    }).join('');
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">
+      <div style="font-size:.75rem;font-weight:${isNL ? '500' : '700'};color:${isNL ? '#6b7280' : '#374151'};width:120px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+      <div class="edu-stacked" style="flex:1;${isNL ? 'opacity:.6;outline:1.5px dashed #94a3b8;outline-offset:-1px;' : ''}">${segs}</div>
+    </div>`;
+  };
+
+  const nlHasEdu = EDU_KEYS.every(k => nl[k] != null);
+  document.getElementById('hc-edu-section').innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+      ${EDU_LABELS.map((l, i) => `<span style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#374151;">
+        <span style="width:10px;height:10px;background:${EDU_COLORS[i]};border-radius:2px;display:inline-block;"></span>${l}
+      </span>`).join('')}
+    </div>
+    ${(!ternarySeries.length && !nlHasEdu)
+      ? '<p style="color:#9ca3af;font-size:.82rem;">No education data available.</p>'
+      : [
+          ...ternarySeries.map(item => makeEduBar(item.data, item.name, false)),
+          ...(nlHasEdu ? [makeEduBar(nl, 'Netherlands avg', true)] : []),
+        ].join('')
+    }`;
+
+  const labInds = ['Labour participation (%)','Employees (% of workforce)','Self-employed (% of workforce)','Unemployment proxy (%)'];
+  document.getElementById('hc-labour-bars').innerHTML = `<div class="bullet-stack">${labInds
+    .filter(i => d[i] != null || nl[i] != null)
+    .map(i => buildBulletStrip(i, d[i], nl[i], { color: '#0f766e', max: 100 }))
+    .join('')}</div>`;
+}
+
+/* ════════════ HOUSING TAB ════════════ */
+function renderHousingTab(agg) {
+  const d  = agg.Housing || {};
+  const nl = nlTotals.Housing || {};
+
+  const kpis = [
+    { label: 'WOZ Value',      val: d['Avg WOZ value (x€1k)'] != null ? '€' + d['Avg WOZ value (x€1k)'].toFixed(0) + 'k'    : '–', accent: '#7c3aed' },
+    { label: 'Owner-occupied', val: d['Owner-occupied (%)']   != null ? d['Owner-occupied (%)'].toFixed(1) + '%'              : '–', accent: '#16a34a' },
+    { label: 'Social housing', val: d['Social housing (%)']   != null ? d['Social housing (%)'].toFixed(1) + '%'              : '–', accent: '#0891b2' },
+    { label: 'Avg HH size',    val: d['Avg household size']   != null ? d['Avg household size'].toFixed(2)                    : '–', accent: '#f97316' },
+  ];
+  document.getElementById('housing-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}"><div class="kpi-value">${escapeHtml(k.val)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`
+  ).join('');
+
+  document.getElementById('housing-tenure-bars').innerHTML = `
+    <div class="paired-panels">
+      ${buildTreemapPanel('Selected municipalities', d, [
+        { key: 'Owner-occupied (%)', color: '#16a34a', label: 'Owner-occupied' },
+        { key: 'Rental homes (%)', color: '#7c3aed', label: 'Rental' },
+        { key: 'Social housing (%)', color: '#0891b2', label: 'Social housing' },
+      ], 'Tenure mix')}
+      ${buildTreemapPanel('Netherlands average', nl, [
+        { key: 'Owner-occupied (%)', color: '#16a34a', label: 'Owner-occupied' },
+        { key: 'Rental homes (%)', color: '#7c3aed', label: 'Rental' },
+        { key: 'Social housing (%)', color: '#0891b2', label: 'Social housing' },
+      ], 'Tenure mix', true)}
+      ${buildTreemapPanel('Selected stock type', d, [
+        { key: 'Single-family homes (%)', color: '#f97316', label: 'Single-family' },
+        { key: 'Multi-family homes (%)', color: '#ef4444', label: 'Multi-family' },
+      ], 'Dwelling type')}
+      ${buildTreemapPanel('Selected stock age', d, [
+        { key: 'Pre-2000 stock (%)', color: '#0f766e', label: 'Pre-2000' },
+        { key: 'Post-2000 stock (%)', color: '#10b981', label: 'Post-2000' },
+      ], 'Construction era')}
+    </div>`;
+
+  document.getElementById('housing-stock-bars').innerHTML = `
+    <div class="badge-grid">
+      ${buildContextBadge('Avg WOZ value', d['Avg WOZ value (x€1k)'], nl['Avg WOZ value (x€1k)'], 'Median property valuation proxy', 'Avg WOZ value (x€1k)')}
+      ${buildContextBadge('Vacancy rate', d['Vacancy rate (%)'], nl['Vacancy rate (%)'], 'Vacant homes share', 'Vacancy rate (%)')}
+      ${buildContextBadge('Avg household size', d['Avg household size'], nl['Avg household size'], 'Residents per household', 'Avg household size')}
+    </div>`;
+}
+
+/* ════════════ INCOME & WEALTH TAB ════════════ */
+function renderIncomeWealthTab(agg) {
+  const d  = agg.IncomeWealth || {};
+  const nl = nlTotals.IncomeWealth || {};
+
+  const kpis = [
+    { label: 'Avg income / inhabitant', val: d['Avg income per inhabitant (x€1k)'] != null ? '€' + d['Avg income per inhabitant (x€1k)'].toFixed(1) + 'k' : '–', accent: '#f97316' },
+    { label: 'Median wealth / HH',      val: d['Median household wealth (x€1k)']   != null ? '€' + d['Median household wealth (x€1k)'].toFixed(0) + 'k'   : '–', accent: '#7c3aed' },
+    { label: 'Avg HH income',           val: d['Avg household income (x€1k)']      != null ? '€' + d['Avg household income (x€1k)'].toFixed(1) + 'k'      : '–', accent: '#0891b2' },
+  ];
+  document.getElementById('iw-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}"><div class="kpi-value">${escapeHtml(k.val)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`
+  ).join('');
+
+  const incomeSeries = getSelectedSeries('IncomeWealth', ['Avg income per inhabitant (x€1k)', 'Median household wealth (x€1k)'])
+    .filter(item => item.data['Avg income per inhabitant (x€1k)'] != null && item.data['Median household wealth (x€1k)'] != null);
+  document.getElementById('iw-income-bars').innerHTML = buildConnectedScatter(incomeSeries, nl, {
+    xKey: 'Avg income per inhabitant (x€1k)',
+    yKey: 'Median household wealth (x€1k)',
+    sizeKey: 'Avg household income (x€1k)',
+    connectorLimit: 3,
+  });
+
+  const bot40 = d['Bottom-40% income share (%)'];
+  const top20 = d['Top-20% income share (%)'];
+  const nlBot40 = nl['Bottom-40% income share (%)'];
+  const nlTop20 = nl['Top-20% income share (%)'];
+  const ratio = (bot40 && top20) ? (top20 / bot40 * 2).toFixed(2) : null;
+  const nlRatio = (nlBot40 && nlTop20) ? (nlTop20 / nlBot40 * 2).toFixed(2) : null;
+  document.getElementById('iw-quintile-chart').innerHTML = `
+    <div class="stat-chips">
+      <span class="stat-chip">Bottom-40 share: <strong>${fmtUnit('Bottom-40% income share (%)', bot40)}</strong>${nlBot40 != null ? ` · NL ${fmtUnit('Bottom-40% income share (%)', nlBot40)}` : ''}</span>
+      <span class="stat-chip">Top-20 share: <strong>${fmtUnit('Top-20% income share (%)', top20)}</strong>${nlTop20 != null ? ` · NL ${fmtUnit('Top-20% income share (%)', nlTop20)}` : ''}</span>
+      ${ratio != null ? `<span class="stat-chip">Top-20 / Bottom-40 ratio: <strong style="color:${parseFloat(ratio)>parseFloat(nlRatio||ratio)?'#dc2626':'#16a34a'};">${ratio}</strong>${nlRatio ? ` · NL ${nlRatio}` : ''}</span>` : ''}
+    </div>
+  `;
+}
+
+/* ════════════ SERVICES TAB ════════════ */
+function renderServicesTab(agg) {
+  const d  = agg.Services || {};
+  const nl = nlTotals.Services || {};
+
+  const urban = d['Degree of urbanisation (1–5)'];
+  const urbanLabels = ['','Very urban','Urban','Moderately urban','Slightly urban','Rural'];
+  const urbanLabel  = urban != null ? (urbanLabels[Math.round(urban)] || urban.toFixed(1)) : '–';
+
+  const kpis = [
+    { label: 'GP distance',       val: d['Distance to GP (km)']         != null ? d['Distance to GP (km)'].toFixed(1) + ' km'         : '–', accent: '#dc2626' },
+    { label: 'Supermarket dist.', val: d['Distance to supermarket (km)'] != null ? d['Distance to supermarket (km)'].toFixed(1) + ' km' : '–', accent: '#f97316' },
+    { label: 'School distance',   val: d['Distance to school (km)']     != null ? d['Distance to school (km)'].toFixed(1) + ' km'      : '–', accent: '#0891b2' },
+    { label: 'Urbanisation',      val: urbanLabel,                                                                                              accent: '#7c3aed' },
+  ];
+  document.getElementById('svc-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}"><div class="kpi-value">${escapeHtml(k.val)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`
+  ).join('');
+
+  const distKeys = [
+    { label: 'Distance to GP',          key: 'Distance to GP (km)',          max: 8 },
+    { label: 'Distance to supermarket', key: 'Distance to supermarket (km)', max: 8 },
+    { label: 'Distance to school',      key: 'Distance to school (km)',      max: 8 },
+    { label: 'Distance to daycare',     key: 'Distance to daycare (km)',     max: 10 },
+    { label: 'Schools within 3 km',     key: 'Schools within 3km',           max: 20 },
+  ];
+  document.getElementById('svc-distance-bars').innerHTML = buildServiceLanes(distKeys, nl, 'Services');
+
+  document.getElementById('svc-context').innerHTML = `
+    <div class="badge-grid">
+      ${buildContextBadge('Urbanisation', d['Degree of urbanisation (1–5)'], nl['Degree of urbanisation (1–5)'], '1 = very urban, 5 = rural', 'Degree of urbanisation (1–5)')}
+      ${buildContextBadge('Schools within 3 km', d['Schools within 3km'], nl['Schools within 3km'], 'Counts of nearby schools', 'Schools within 3km')}
+      ${buildContextBadge('Daycare distance', d['Distance to daycare (km)'], nl['Distance to daycare (km)'], 'Access to childcare', 'Distance to daycare (km)')}
+    </div>`;
+}
+
+/* ════════════ TYPOLOGY TAB ════════════ */
+async function runTypology() {
+  const ids = selectedIds.filter(gmc => gemeenteData[gmc]);
+  if (ids.length < 3) {
+    document.getElementById('typology-result').innerHTML =
+      '<p style="color:#dc2626;font-size:.85rem;">Select at least 3 gemeenten to run typology.</p>';
+    return;
+  }
+
+  const btn = document.getElementById('run-typology-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  document.getElementById('typology-result').innerHTML =
+    '<p style="color:#6b7280;font-size:.85rem;padding:12px 0;">Clustering across ~70 indicators…<br><span style="font-size:.78rem;color:#9ca3af;">First run may take 30–60 s while the API warms up on HuggingFace.</span></p>';
+
+  try {
+    const url = `${TYPOLOGY_API}/typology?ids=${encodeURIComponent(ids.join(','))}&k=${activeK}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    renderTypologyResults(data);
+  } catch (err) {
+    document.getElementById('typology-result').innerHTML =
+      `<p style="color:#dc2626;font-size:.85rem;">API error: ${escapeHtml(err.message)}<br>
+       <span style="color:#6b7280;font-size:.78rem;">Is the HuggingFace Space deployed? Check <code>TYPOLOGY_API</code> in profile.html.</span></p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Typology';
+  }
+}
+
+function renderTypologyResults(data) {
+  const container = document.getElementById('typology-result');
+  container.innerHTML = '';
+
+  const meta = document.createElement('p');
+  meta.style.cssText = 'font-size:.72rem;color:#9ca3af;margin-bottom:12px;';
+  meta.textContent = `${data.n_zones} gemeenten · ${data.n_indicators} indicatoren · k=${data.k_selected} clusters`;
+  container.appendChild(meta);
+
+  Object.values(data.summary).forEach((cl, i) => {
+    const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+    const card = document.createElement('div');
+    card.className = 'cluster-card';
+
+    const tagRows = (items, accent, icon) => items.map(t =>
+      `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:5px;">
+        <span style="color:${accent};flex-shrink:0;font-size:.8rem;">${icon}</span>
+        <span style="font-size:.75rem;color:#374151;line-height:1.45;">${escapeHtml(t)}</span>
+      </div>`
+    ).join('');
+
+    const driverRows = (cl.drivers || []).slice(0, 6).map(d => {
+      const above = d.direction === 'above';
+      return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0;border-bottom:1px solid #f1f5f9;">
+        <span style="font-size:.65rem;color:${above ? '#dc2626' : '#16a34a'};flex-shrink:0;">${above ? '▲' : '▼'}</span>
+        <span style="font-size:.73rem;color:#374151;flex:1;">${escapeHtml(d.variable)}</span>
+        <span style="font-size:.7rem;font-family:monospace;color:${above ? '#dc2626' : '#16a34a'};">${d.z > 0 ? '+' : ''}${d.z}σ</span>
+      </div>`;
+    }).join('');
+
+    card.innerHTML = `
+      <div class="cluster-accent" style="background:${color}"></div>
+      <div class="cluster-inner">
+        <div class="cluster-header">
+          <div class="cluster-dot" style="background:${color}"></div>
+          <div class="cluster-name">Cluster ${cl.cluster}</div>
+          <div class="cluster-count">${cl.count} gemeente${cl.count !== 1 ? 'n' : ''}</div>
+        </div>
+        <div class="cluster-zones">
+          ${(cl.zones || []).map(gmc => `<span class="cluster-zone-chip">${escapeHtml(gemeenteName(gmc))}</span>`).join('')}
+        </div>
+        ${cl.traits?.length ? `
+          <div style="margin:10px 0 6px;font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;">Kenmerken</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;">
+            ${cl.traits.map(t => `<span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:2px 9px;font-size:.72rem;color:#374151;">${escapeHtml(t)}</span>`).join('')}
+          </div>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;">
+          ${cl.challenges?.length ? `<div>
+            <div style="font-size:.68rem;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">⚠ Uitdagingen</div>
+            ${tagRows(cl.challenges, '#dc2626', '•')}
+          </div>` : ''}
+          ${cl.opportunities?.length ? `<div>
+            <div style="font-size:.68rem;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">✦ Kansen</div>
+            ${tagRows(cl.opportunities, '#16a34a', '•')}
+          </div>` : ''}
+        </div>
+        ${driverRows ? `<div style="margin-top:10px;">
+          <div style="font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Onderscheidende indicatoren vs NL gemiddelde</div>
+          ${driverRows}
+        </div>` : ''}
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+function buildClusterStat(label, val, nlVal, unit) {
+  if (val == null) return '';
+  const diff = nlVal != null ? parseFloat((val - nlVal).toFixed(1)) : null;
+  const diffHtml = diff != null
+    ? `<span style="font-size:.65rem;color:${diff > 0.5 ? '#dc2626' : diff < -0.5 ? '#16a34a' : '#6b7280'}">${diff > 0 ? '+' : ''}${diff}${unit}</span>`
+    : '';
+  return `<div class="cs-item">
+    <div class="cs-val">${val.toFixed(1)}<span style="font-size:.65rem">${unit}</span> ${diffHtml}</div>
+    <div class="cs-lbl">${escapeHtml(label)}</div>
+  </div>`;
+}
+
+/* ════════════ ANALYSIS TAB ════════════ */
+function renderAnalysis() {
+  const container = document.getElementById('analysis-result');
+  container.innerHTML = '';
+  if (!selectedIds.length) {
+    container.innerHTML = '<p style="color:#9ca3af;font-size:.85rem;">No gemeenten selected.</p>';
+    return;
+  }
+
+  // Build NL mean + std for each indicator
+  const allData = Object.values(gemeenteData);
+  const nlStats = {}; // ind → { mean, std }
+  for (const domain of ALL_DOMAINS) {
+    const sums = {}; const sums2 = {}; const ns = {};
+    allData.forEach(d => {
+      Object.entries(d[domain] || {}).forEach(([ind, val]) => {
+        if (typeof val !== 'number') return;
+        sums[ind]  = (sums[ind]  || 0) + val;
+        sums2[ind] = (sums2[ind] || 0) + val * val;
+        ns[ind]    = (ns[ind]    || 0) + 1;
+      });
+    });
+    Object.keys(sums).forEach(ind => {
+      const mean = sums[ind] / ns[ind];
+      const std  = Math.sqrt(sums2[ind] / ns[ind] - mean * mean) || 1;
+      nlStats[ind] = { mean, std };
+    });
+  }
+
+  // Select a gemeente to analyse
+  const sel = document.getElementById('analysis-gemeente-select');
+  sel.innerHTML = '<label style="font-size:.82rem;font-weight:600;color:#374151;margin-right:8px;">Gemeente:</label>'
+    + `<select id="analysis-gmc-picker" style="font-size:.82rem;padding:.25rem .5rem;border:1px solid #d1d5db;border-radius:5px;">${
+        selectedIds.map(gmc => `<option value="${gmc}">${escapeHtml(gemeenteName(gmc))}</option>`).join('')
+    }</select>`;
+
+  const picker = document.getElementById('analysis-gmc-picker');
+  picker.addEventListener('change', () => renderZScores(picker.value, nlStats, container));
+  renderZScores(picker.value, nlStats, container);
+}
+
+let _analysisRadar = null;
+function renderZScores(gmc, nlStats, container) {
+  container.innerHTML = '';
+  const d = gemeenteData[gmc];
+  if (!d) return;
+
+  const rows = [];
+  for (const domain of ALL_DOMAINS) {
+    Object.entries(d[domain] || {}).forEach(([ind, val]) => {
+      if (typeof val !== 'number' || !nlStats[ind]) return;
+      const { mean, std } = nlStats[ind];
+      const z = (val - mean) / std;
+      rows.push({ domain, ind, val, mean, z });
+    });
+  }
+
+  const domainColors = { Demographics: '#4f46e5', Inequality: '#dc2626', HumanCapital: '#0891b2', Housing: '#7c3aed', IncomeWealth: '#f97316', Services: '#16a34a', WelfareCare: '#0e7490', Economy: '#059669', Environment: '#65a30d' };
+
+  // ── Domain-level radar (mean absolute z per domain)
+  const domainZ = {};
+  rows.forEach(r => {
+    if (!domainZ[r.domain]) domainZ[r.domain] = [];
+    domainZ[r.domain].push(r.z);
+  });
+  const radarLabels = ALL_DOMAINS.filter(d => domainZ[d]);
+  const radarData   = radarLabels.map(d => {
+    const zs = domainZ[d];
+    return parseFloat((zs.reduce((s, v) => s + Math.abs(v), 0) / zs.length).toFixed(2));
+  });
+
+  const radarDiv = document.createElement('div');
+  radarDiv.className = 'domain-card';
+  radarDiv.style.marginBottom = '1rem';
+  radarDiv.innerHTML = `
+    <div class="domain-title">Domain deviation from NL average</div>
+    <p style="font-size:.75rem;color:#6b7280;margin-bottom:10px;">Each axis = mean |z-score| for that domain. Further from centre = more unusual relative to the Netherlands.</p>
+    <div style="max-width:320px;margin:0 auto;"><canvas id="analysis-radar" height="280"></canvas></div>`;
+  container.appendChild(radarDiv);
+
+  requestAnimationFrame(() => {
+    _analysisRadar?.destroy?.();
+    const ctx = document.getElementById('analysis-radar')?.getContext('2d');
+    if (!ctx) return;
+    _analysisRadar = new Chart(ctx, {
+      type: 'radar',
+      data: {
+        labels: radarLabels.map(d => tDomain(d).split(' ')[0]),
+        datasets: [{
+          label: gemeenteName(gmc),
+          data: radarData,
+          backgroundColor: 'rgba(79,70,229,.15)',
+          borderColor: '#4f46e5',
+          borderWidth: 2.5,
+          pointBackgroundColor: '#4f46e5',
+          pointRadius: 4,
+        }]
+      },
+      options: {
+        scales: { r: { min: 0, ticks: { display: false }, grid: { color: '#e5e7eb' }, pointLabels: { font: { size: 10.5 }, color: '#374151' } } },
+        plugins: { legend: { display: false } },
+        animation: { duration: 600 }
+      }
+    });
+  });
+
+  // ── Top outlier indicators (sorted by |z|, keep top 15)
+  rows.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  const maxZ = Math.max(...rows.slice(0, 15).map(r => Math.abs(r.z)), 2);
+  const detailDiv = document.createElement('div');
+  detailDiv.className = 'domain-card';
+  detailDiv.innerHTML = `<div class="domain-title">Top outlier indicators vs NL</div>
+    <p style="font-size:.73rem;color:#6b7280;margin-bottom:12px;">Indicators where this gemeente deviates most from the national average (z-score).</p>`;
+
+  rows.slice(0, 15).forEach(r => {
+    const pct   = Math.abs(r.z) / maxZ * 50;
+    const isPos = r.z > 0;
+    const bg    = Math.abs(r.z) > 1.5 ? (isPos ? '#fecaca' : '#bbf7d0') : '#e8ecf0';
+    const valColor = Math.abs(r.z) > 1.5 ? (isPos ? '#dc2626' : '#16a34a') : '#6b7280';
+    const domCol   = domainColors[r.domain] || '#6b7280';
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-bottom:9px;';
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between;font-size:.73rem;margin-bottom:3px;">
+        <span style="font-weight:600;color:#1e293b;">${escapeHtml(tLabel(r.ind))}</span>
+        <span style="font-size:.68rem;color:${domCol};background:${domCol}18;padding:1px 6px;border-radius:10px;">${escapeHtml(tDomain(r.domain).split(' ')[0])}</span>
+      </div>
+      <div style="height:16px;background:#f1f5f9;border-radius:4px;position:relative;">
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:#cbd5e1;transform:translateX(-50%);"></div>
+        <div style="position:absolute;top:0;height:100%;width:${pct}%;left:${isPos?'50%':(50-pct)+'%'};background:${bg};border-radius:4px;transition:width .4s;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:.7rem;margin-top:2px;">
+        <span style="color:#374151;">Value: <strong>${fmtUnit(r.ind, r.val)}</strong> · NL avg: ${fmtUnit(r.ind, r.mean)}</span>
+        <span style="font-weight:700;color:${valColor};font-family:'JetBrains Mono',monospace;">${r.z > 0 ? '+' : ''}${r.z.toFixed(2)}σ</span>
+      </div>`;
+    detailDiv.appendChild(row);
+  });
+  container.appendChild(detailDiv);
+
+  const legend = document.createElement('p');
+  legend.style.cssText = 'font-size:.71rem;color:#9ca3af;margin-top:.5rem;';
+  legend.textContent = `z = (value − NL mean) / NL std dev · computed from ${Object.keys(gemeenteData).length} gemeenten.`;
+  container.appendChild(legend);
+}
+
+/* ════════════ SHARED HELPERS ════════════ */
+
+/* Dumbbell dot plot row — selected (indigo) vs NL avg (red) connected by a line */
+function buildDumbbell(ind, selVal, nlVal, maxVal) {
+  if (selVal == null && nlVal == null) return '';
+  const fmtS  = fmtUnit(ind, selVal);
+  const fmtN  = nlVal != null ? fmtUnit(ind, nlVal) : null;
+  const sPct  = selVal != null ? Math.min(selVal / maxVal * 100, 100) : null;
+  const nPct  = nlVal  != null ? Math.min(nlVal  / maxVal * 100, 100) : null;
+  const lo    = Math.min(sPct ?? 100, nPct ?? 100);
+  const hi    = Math.max(sPct ?? 0,   nPct ?? 0);
+  const diff  = (selVal != null && nlVal != null) ? selVal - nlVal : null;
+  const diffHtml = diff != null
+    ? `<span style="font-size:.68rem;color:${Math.abs(diff) < 0.5 ? '#9ca3af' : diff > 0 ? '#dc2626' : '#16a34a'};margin-left:8px;">${diff > 0 ? '+' : ''}${fmtUnit(ind, diff)}</span>`
+    : '';
+  return `<div class="db">
+    <div class="db-lbl">${escapeHtml(tLabel(ind))}${diffHtml}</div>
+    <div class="db-axis">
+      ${sPct != null && nPct != null ? `<div class="db-line" style="left:${lo}%;width:${hi - lo}%;background:#c4b5fd;"></div>` : ''}
+      ${sPct != null ? `<div class="db-dot db-a" style="left:${sPct}%;" title="Selected: ${fmtS}"></div>` : ''}
+      ${nPct != null ? `<div class="db-dot db-b" style="left:${nPct}%;" title="NL avg: ${fmtN}"></div>` : ''}
+    </div>
+    <div class="db-foot">
+      ${selVal != null ? `<span class="db-av">● ${escapeHtml(fmtS)}</span>` : '<span></span>'}
+      ${fmtN != null  ? `<span class="db-bv">NL: ${escapeHtml(fmtN)}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+/* Waffle chart — 10×10 grid, each square = 1% */
+function buildWaffle(pct, color, label, nlPct) {
+  const n    = Math.round(Math.min(Math.max(pct ?? 0, 0), 100));
+  const cells = Array.from({ length: 100 }, (_, i) =>
+    `<div class="wf" style="background:${i < n ? color : '#e8ecf0'};"></div>`
+  ).join('');
+  return `<div class="waffle-wrap">
+    <div class="waffle-grid">${cells}</div>
+    <div class="waffle-val" style="color:${color};">${(pct ?? 0).toFixed(1)}%</div>
+    <div class="waffle-lbl">${escapeHtml(label)}</div>
+    ${nlPct != null ? `<div style="font-size:.67rem;color:#9ca3af;">NL: ${nlPct.toFixed(1)}%</div>` : ''}
+  </div>`;
+}
+
+function fmtUnit(ind, val) {
+  if (val == null) return '–';
+  if (ind.includes('kWh')) return `${Math.round(val).toLocaleString('nl-NL')} kWh`;
+  if (ind.includes('m³')) return `${Math.round(val).toLocaleString('nl-NL')} m³`;
+  if (ind.includes('x€1k') || ind.includes('×€1k')) return `€${Number(val).toFixed(1)}k`;
+  if (ind.includes('(km)')) return `${Number(val).toFixed(1)} km`;
+  if (ind.includes('km²')) return `${Number(val).toFixed(1)} km²`;
+  if (ind.includes('per 1k') || ind.includes('per 1,000') || ind.includes('per 1000')) return `${Number(val).toFixed(1)} per 1,000`;
+  if (ind.includes('(%)')) return `${Number(val).toFixed(1)}%`;
+  if (ind === 'Schools within 3km' || ind === 'Schools within 3 km') return Number(val).toFixed(1);
+  if (ind === 'Avg household size' || ind === 'Cars per household') return Number(val).toFixed(2);
+  if (ind.includes('1–5') || ind.includes('1-5')) return Number(val).toFixed(1);
+  return Math.abs(val) >= 1000 ? Number(val).toLocaleString('nl-NL') : Number(val).toFixed(1);
+}
+
+function niceMax(values) {
+  const max = Math.max(...values.filter(v => typeof v === 'number' && !Number.isNaN(v)), 1);
+  const pow = 10 ** Math.max(0, Math.floor(Math.log10(max)));
+  return Math.ceil(max / pow) * pow;
+}
+
+function getSelectedSeries(domain, keys) {
+  const palette = ['#4f46e5', '#0ea5e9', '#10b981', '#f97316', '#ec4899', '#8b5cf6'];
+  return selectedIds.map((gmc, index) => ({
+    gmc,
+    name: gemeenteName(gmc),
+    color: palette[index % palette.length],
+    data: gemeenteData[gmc]?.[domain] || {},
+  })).filter(item => keys.some(key => item.data[key] != null));
+}
+
+function buildUnitGridCard(label, value, nlValue, color, options = {}) {
+  if (value == null && nlValue == null) return '';
+  const scale = options.scale || 1;
+  const cells = options.cells || 100;
+  const fmtKey = options.fmtKey || label;
+  const filled = Math.max(0, Math.min(cells, Math.round((value ?? 0) / scale)));
+  const nlCells = nlValue != null ? Math.max(0, Math.min(cells, Math.round(nlValue / scale))) : 0;
+  return `<div class="viz-card" style="--cell-color:${color}">
+    <h4>${escapeHtml(label)}</h4>
+    <div class="unit-grid">${Array.from({ length: cells }, (_, i) =>
+      `<div class="unit-cell ${i < filled ? 'is-filled' : ''} ${i < nlCells ? 'is-nl' : ''}"></div>`
+    ).join('')}</div>
+    <div class="unit-meta">
+      <span class="unit-label">Selected</span>
+      <span class="unit-value">${fmtUnit(fmtKey, value)}</span>
+    </div>
+    <div class="unit-sub">NL ${fmtUnit(fmtKey, nlValue)}${options.suffix ? ` · ${escapeHtml(options.suffix)}` : ''}</div>
+  </div>`;
+}
+
+function buildContextBadge(label, value, nlValue, note, fmtKey = label) {
+  return `<div class="context-badge">
+    <strong>${escapeHtml(fmtUnit(fmtKey, value))}</strong>
+    <span>${escapeHtml(label)}${nlValue != null ? ` · NL ${fmtUnit(fmtKey, nlValue)}` : ''}</span>
+    <span style="display:block;margin-top:4px;">${escapeHtml(note)}</span>
+  </div>`;
+}
+
+function buildBulletStrip(ind, selVal, nlVal, options = {}) {
+  if (selVal == null && nlVal == null) return '';
+  const max = options.max || niceMax([selVal, nlVal]);
+  const selPct = selVal != null ? Math.min(100, selVal / max * 100) : 0;
+  const nlPct = nlVal != null ? Math.min(100, nlVal / max * 100) : null;
+  const targetPct = options.target != null ? Math.min(100, options.target / max * 100) : null;
+  return `<div class="bullet-row" style="--bullet-color:${options.color || '#4f46e5'};">
+    <div>
+      <div class="bullet-label">${escapeHtml(tLabel(ind))}</div>
+      <div class="bullet-value">Selected ${fmtUnit(ind, selVal)}${nlVal != null ? ` · NL ${fmtUnit(ind, nlVal)}` : ''}</div>
+    </div>
+    <div class="bullet-track">
+      ${targetPct != null ? `<div class="bullet-target" style="left:${targetPct.toFixed(1)}%;"></div>` : ''}
+      <div class="bullet-fill" style="width:${selPct.toFixed(1)}%;"></div>
+      ${nlPct != null ? `<div class="bullet-nl" style="left:${nlPct.toFixed(1)}%;"></div>` : ''}
+    </div>
+  </div>`;
+}
+
+function buildTernaryPlot(series, nl, keys) {
+  const width = 320;
+  const height = 280;
+  const corners = {
+    low: { x: 24, y: 244 },
+    medium: { x: 296, y: 244 },
+    high: { x: 160, y: 28 },
+  };
+  const pointFor = (low, medium, high) => {
+    const sum = (low || 0) + (medium || 0) + (high || 0) || 1;
+    const l = low / sum;
+    const m = medium / sum;
+    const h = high / sum;
+    return {
+      x: corners.low.x * l + corners.medium.x * m + corners.high.x * h,
+      y: corners.low.y * l + corners.medium.y * m + corners.high.y * h,
+    };
+  };
+  const nlPoint = nl[keys.lowKey] != null && nl[keys.mediumKey] != null && nl[keys.highKey] != null
+    ? pointFor(nl[keys.lowKey], nl[keys.mediumKey], nl[keys.highKey])
+    : null;
+  if (!series.length && !nlPoint) return '<p style="color:#9ca3af;font-size:.82rem;">No education composition data available.</p>';
+  return `<div class="ternary-wrap">
+    <div>
+      <div class="series-list">
+        ${series.map(item => `<span class="series-chip"><span class="series-swatch" style="background:${item.color};"></span>${escapeHtml(item.name)}</span>`).join('')}
+        ${nlPoint ? `<span class="series-chip"><span class="series-swatch" style="background:#fff;border:2px solid #111827;box-sizing:border-box;"></span>Netherlands</span>` : ''}
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" style="width:100%;max-width:${width}px;">
+        <polygon points="${corners.low.x},${corners.low.y} ${corners.medium.x},${corners.medium.y} ${corners.high.x},${corners.high.y}" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"></polygon>
+        <line x1="${(corners.low.x + corners.high.x) / 2}" y1="${(corners.low.y + corners.high.y) / 2}" x2="${corners.medium.x}" y2="${corners.medium.y}" stroke="#e2e8f0" stroke-dasharray="4 4"></line>
+        <line x1="${(corners.medium.x + corners.high.x) / 2}" y1="${(corners.medium.y + corners.high.y) / 2}" x2="${corners.low.x}" y2="${corners.low.y}" stroke="#e2e8f0" stroke-dasharray="4 4"></line>
+        <line x1="${(corners.low.x + corners.medium.x) / 2}" y1="${(corners.low.y + corners.medium.y) / 2}" x2="${corners.high.x}" y2="${corners.high.y}" stroke="#e2e8f0" stroke-dasharray="4 4"></line>
+        <text x="${corners.low.x}" y="${corners.low.y + 18}" font-size="11" fill="#475569">Low</text>
+        <text x="${corners.medium.x}" y="${corners.medium.y + 18}" text-anchor="end" font-size="11" fill="#475569">Medium</text>
+        <text x="${corners.high.x}" y="${corners.high.y - 8}" text-anchor="middle" font-size="11" fill="#475569">High</text>
+        ${series.map(item => {
+          const p = pointFor(item.data[keys.lowKey], item.data[keys.mediumKey], item.data[keys.highKey]);
+          return `<g>
+            <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="6" fill="${item.color}" opacity=".9"></circle>
+            <text x="${(p.x + 9).toFixed(1)}" y="${(p.y - 8).toFixed(1)}" font-size="9.5" fill="${item.color}" font-weight="600">${escapeHtml(item.name.split(' ')[0])}</text>
+          </g>`;
+        }).join('')}
+        ${nlPoint ? `<circle cx="${nlPoint.x.toFixed(1)}" cy="${nlPoint.y.toFixed(1)}" r="7" fill="#fff" stroke="#111827" stroke-width="2"></circle>` : ''}
+      </svg>
+    </div>
+    <div class="ternary-note">
+      The triangle shows how each municipality balances low, medium, and high education shares as one composition. The Netherlands is the hollow reference point, and labour indicators below keep the comparison readable for non-compositional metrics.
+    </div>
+  </div>`;
+}
+
+function buildTreemapPanel(title, data, items, subtitle, muted = false) {
+  const available = items.filter(item => data[item.key] != null);
+  if (!available.length) return '';
+  const total = available.reduce((sum, item) => sum + data[item.key], 0) || 1;
+  return `<div class="viz-card">
+    <h4>${escapeHtml(title)}</h4>
+    <p style="margin:0 0 8px;">${escapeHtml(subtitle)}</p>
+    <div class="mini-treemap">${available.map(item => {
+      const flex = Math.max(8, (data[item.key] / total) * 100);
+      return `<div class="mini-tile" style="flex:${flex};background:${item.color};opacity:${muted ? '.55' : '1'};">
+        <span>${escapeHtml(item.label)}</span>
+        <strong>${fmtUnit(item.key, data[item.key])}</strong>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+}
+
+function buildConnectedScatter(series, nl, options) {
+  const xKey = options.xKey;
+  const yKey = options.yKey;
+  const sizeKey = options.sizeKey;
+  const nlPoint = nl[xKey] != null && nl[yKey] != null ? { x: nl[xKey], y: nl[yKey], size: nl[sizeKey] || 0 } : null;
+  const points = series.map(item => ({
+    ...item,
+    x: item.data[xKey],
+    y: item.data[yKey],
+    size: item.data[sizeKey] || 0,
+  })).filter(point => point.x != null && point.y != null);
+  if (!points.length && !nlPoint) return '<p style="color:#9ca3af;font-size:.82rem;">No income and wealth scatter data available.</p>';
+  const xs = [...points.map(p => p.x), nlPoint?.x].filter(v => v != null);
+  const ys = [...points.map(p => p.y), nlPoint?.y].filter(v => v != null);
+  const ss = points.map(p => p.size).filter(v => v != null);
+  const bounds = { minX: Math.min(...xs) * 0.95, maxX: Math.max(...xs) * 1.05, minY: Math.min(...ys) * 0.92, maxY: Math.max(...ys) * 1.08 };
+  const w = 440;
+  const h = 260;
+  const pad = { left: 56, right: 20, top: 14, bottom: 34 };
+  const xPos = v => pad.left + ((v - bounds.minX) / ((bounds.maxX - bounds.minX) || 1)) * (w - pad.left - pad.right);
+  const yPos = v => h - pad.bottom - ((v - bounds.minY) / ((bounds.maxY - bounds.minY) || 1)) * (h - pad.top - pad.bottom);
+  const maxSize = Math.max(...ss, nlPoint?.size || 0, 1);
+  return `<div>
+    <div class="scatter-legend">
+      ${points.map(point => `<span><span class="series-swatch" style="background:${point.color};margin-right:5px;"></span>${escapeHtml(point.name)}</span>`).join('')}
+      ${nlPoint ? `<span><span class="series-swatch" style="background:#fff;border:2px solid #111827;box-sizing:border-box;margin-right:5px;"></span>Netherlands</span>` : ''}
+    </div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;">
+      <line x1="${pad.left}" x2="${w - pad.right}" y1="${h - pad.bottom}" y2="${h - pad.bottom}" stroke="#cbd5e1"></line>
+      <line x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${h - pad.bottom}" stroke="#cbd5e1"></line>
+      <text x="${w / 2}" y="${h - 6}" text-anchor="middle" font-size="10" fill="#475569">Avg income per inhabitant</text>
+      <text x="14" y="${h / 2}" transform="rotate(-90 14 ${h / 2})" text-anchor="middle" font-size="10" fill="#475569">Median household wealth</text>
+      ${points.map(point => {
+        const cx = xPos(point.x);
+        const cy = yPos(point.y);
+        const r = 7 + ((point.size || 0) / maxSize) * 9;
+        return `<g>
+          ${nlPoint && points.length <= (options.connectorLimit || 3) ? `<line x1="${xPos(nlPoint.x)}" y1="${yPos(nlPoint.y)}" x2="${cx}" y2="${cy}" stroke="${point.color}" stroke-opacity=".35" stroke-width="2"></line>` : ''}
+          <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${point.color}" fill-opacity=".45" stroke="${point.color}" stroke-width="2"></circle>
+          <text x="${(cx + r + 4).toFixed(1)}" y="${(cy - r - 2).toFixed(1)}" font-size="9.5" fill="${point.color}" font-weight="600">${escapeHtml(point.name.split(' ')[0])}</text>
+        </g>`;
+      }).join('')}
+      ${nlPoint ? `<circle cx="${xPos(nlPoint.x).toFixed(1)}" cy="${yPos(nlPoint.y).toFixed(1)}" r="10" fill="#fff" stroke="#111827" stroke-width="2"></circle>` : ''}
+    </svg>
+    <p class="coxcomb-note">Bubble size tracks average household income. Connectors are shown only for up to ${options.connectorLimit || 3} selected municipalities to avoid overlap.</p>
+  </div>`;
+}
+
+function buildServiceLanes(items, nl, domain) {
+  const series = getSelectedSeries(domain, items.map(item => item.key));
+  if (!series.length && !items.some(item => nl[item.key] != null)) return '<p style="color:#9ca3af;font-size:.82rem;">No services accessibility data available.</p>';
+  return `<div class="lane-stack">
+    <div class="series-list">${series.map(item => `<span class="series-chip"><span class="series-swatch" style="background:${item.color};"></span>${escapeHtml(item.name)}</span>`).join('')}${items.some(item => nl[item.key] != null) ? `<span class="series-chip"><span class="series-swatch" style="background:#fff;border:2px solid #111827;box-sizing:border-box;"></span>Netherlands</span>` : ''}</div>
+    ${items.map(item => {
+      const max = niceMax([item.max, nl[item.key], ...series.map(seriesItem => seriesItem.data[item.key])]);
+      return `<div class="lane-row">
+        <div>
+          <div class="lane-title">${escapeHtml(item.label)}</div>
+          <div class="lane-sub">${series.map(s => `${escapeHtml(s.name.split(' ')[0])}: ${fmtUnit(item.key, s.data[item.key])}`).join(' · ')}</div>
+        </div>
+        <div class="lane-axis">
+          ${nl[item.key] != null ? `<div class="lane-tick" style="left:${(nl[item.key] / max * 100).toFixed(1)}%;"></div>` : ''}
+          ${series.map(seriesItem => {
+            const val = seriesItem.data[item.key];
+            if (val == null) return '';
+            return `<div class="lane-point" style="left:${(val / max * 100).toFixed(1)}%;background:${seriesItem.color};" title="${escapeHtml(seriesItem.name)}: ${fmtUnit(item.key, val)}"></div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function buildBarRow(ind, selVal, nlVal, max, color) {
+  const selPct = selVal != null ? Math.min(selVal / max * 100, 100) : 0;
+  const nlPct  = nlVal  != null ? Math.min(nlVal  / max * 100, 100) : null;
+  const fmtSel = fmtUnit(ind, selVal);
+  const fmtNl  = nlVal  != null ? fmtUnit(ind, nlVal) : null;
+  return `<div class="ind-row">
+    <div class="ind-meta">
+      <span class="ind-label">${escapeHtml(tLabel(ind))}</span>
+      <span class="ind-values">
+        <span class="ind-val-sel">${escapeHtml(fmtSel)}</span>
+        ${fmtNl ? `<span class="ind-val-nl">NL: ${escapeHtml(fmtNl)}</span>` : ''}
+      </span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill" style="width:${selPct.toFixed(1)}%;background:${color};opacity:0.75;"></div>
+      ${nlPct != null ? `<div class="bar-nl" style="left:${nlPct.toFixed(1)}%"></div>` : ''}
+    </div>
+  </div>`;
+}
+
+/* ════════════ WELFARE & CARE TAB ════════════ */
+function renderWelfareCareTab(agg) {
+  const d  = agg.WelfareCare || {};
+  const nl = nlTotals.WelfareCare || {};
+
+  // KPI strip (hidden — gauges tell the story below)
+  document.getElementById('wc-kpis').innerHTML = '';
+
+  // ── Semicircle gauges for per-1000 benefit metrics
+  const gauges = [
+    { key: 'Wmo care clients (per 1k)',          color: '#0891b2', max: 200,  label: 'Wmo Care Clients',  unit: '/1k' },
+    { key: 'Disability benefit (per 1k)',         color: '#dc2626', max: 100,  label: 'Disability Benefit', unit: '/1k' },
+    { key: 'AOW pension recipients (per 1k)',     color: '#7c3aed', max: 300,  label: 'AOW Pension',        unit: '/1k' },
+    { key: 'Bijstand recipients (per 1k)',        color: '#f97316', max: 80,   label: 'Bijstand',           unit: '/1k' },
+    { key: 'Youth welfare (%)',                   color: '#0f766e', max: 30,   label: 'Youth Welfare',      unit: '%'  },
+  ];
+
+  document.getElementById('wc-care-bars').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start;margin-bottom:4px;">
+      ${gauges.filter(g => d[g.key] != null || nl[g.key] != null).map(g =>
+          buildSemiGauge(g.label, d[g.key], nl[g.key], g.max, g.color, g.unit)
+        ).join('')}
+    </div>
+    <p style="font-size:.7rem;color:#9ca3af;margin-top:6px;">
+      Arc shows value relative to plausible maximum. Black tick = Netherlands average.
+    </p>`;
+
+  // ── Bullet strips for poverty threshold %s
+  const povInds = [
+    { key: 'Near-poverty 110% (%)',           color: '#ef4444' },
+    { key: 'Near-poverty 120% (%)',           color: '#f59e0b' },
+    { key: 'At-or-below social minimum (%)',  color: '#7c3aed' },
+    { key: 'Low income threshold (%)',        color: '#dc2626' },
+  ];
+  const maxPov = Math.max(...povInds.map(p => Math.max(d[p.key] || 0, nl[p.key] || 0)), 1) * 1.1;
+  document.getElementById('wc-poverty-bars').innerHTML =
+    povInds.filter(p => d[p.key] != null || nl[p.key] != null)
+      .map(p => buildBulletStrip(p.key, d[p.key], nl[p.key], { max: maxPov, color: p.color }))
+      .join('');
+}
+
+/* Semicircle gauge — arc fills from left (0) to right (max), NL as a radial tick */
+function buildSemiGauge(label, value, nlValue, maxVal, color, unit) {
+  const W = 168, H = 108;
+  const cx = W / 2, cy = H - 8;
+  const R = 68, sw = 11;
+
+  function angleXY(v, r) {
+    const a = Math.PI * (1 - Math.min(v, maxVal) / maxVal);
+    return [cx + r * Math.cos(a), cy - r * Math.sin(a)];
+  }
+
+  function arc(v, r) {
+    const clamped = Math.min(v, maxVal);
+    const frac = clamped / maxVal;
+    if (frac >= 0.9999) return `M ${(cx - r).toFixed(1)} ${cy} A ${r} ${r} 0 1 1 ${(cx + r).toFixed(1)} ${cy}`;
+    const [x, y] = angleXY(clamped, r);
+    const large  = frac > 0.5 ? 1 : 0;
+    return `M ${(cx - r).toFixed(1)} ${cy} A ${r} ${r} 0 ${large} 1 ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }
+
+  const nlXY1 = nlValue != null ? angleXY(nlValue, R + 5)  : null;
+  const nlXY2 = nlValue != null ? angleXY(nlValue, R - sw)  : null;
+  const dispVal = value != null ? value.toFixed(value >= 10 ? 0 : 1) + (unit || '') : '–';
+  const nlDisp  = nlValue != null ? nlValue.toFixed(nlValue >= 10 ? 0 : 1) + (unit || '') : null;
+
+  // Max tick labels
+  const zeroXY  = angleXY(0,   R + 16);
+  const maxXY   = angleXY(maxVal, R + 16);
+
+  return `<div style="text-align:center;min-width:148px;flex:1 1 148px;max-width:200px;">
+    <svg width="${W}" height="${H}" style="overflow:visible;display:block;margin:0 auto;">
+      <path d="${arc(maxVal, R)}" fill="none" stroke="#e8ecf0" stroke-width="${sw}" stroke-linecap="butt"/>
+      ${value != null && value > 0 ? `<path d="${arc(value, R)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="butt" opacity=".9"/>` : ''}
+      ${nlXY1 ? `<line x1="${nlXY1[0].toFixed(1)}" y1="${nlXY1[1].toFixed(1)}" x2="${nlXY2[0].toFixed(1)}" y2="${nlXY2[1].toFixed(1)}" stroke="#1e293b" stroke-width="2.5" stroke-linecap="round"/>` : ''}
+      <text x="${cx}" y="${cy - 22}" text-anchor="middle" font-size="17" font-weight="700" fill="${value != null ? color : '#9ca3af'}" font-family="'JetBrains Mono',monospace">${escapeHtml(dispVal)}</text>
+      <text x="${(cx - R - 6).toFixed(1)}" y="${cy + 14}" text-anchor="end"    font-size="8.5" fill="#9ca3af">0</text>
+      <text x="${(cx + R + 6).toFixed(1)}" y="${cy + 14}" text-anchor="start"  font-size="8.5" fill="#9ca3af">${maxVal}</text>
+    </svg>
+    <div style="font-size:.72rem;font-weight:600;color:#374151;margin-top:-4px;letter-spacing:.01em;">${escapeHtml(label)}</div>
+    ${nlDisp ? `<div style="font-size:.65rem;color:#9ca3af;margin-top:2px;display:flex;align-items:center;justify-content:center;gap:4px;"><span style="width:8px;height:2.5px;background:#1e293b;display:inline-block;border-radius:2px;"></span>NL ${escapeHtml(nlDisp)}</div>` : ''}
+  </div>`;
+}
+
+/* ════════════ ECONOMY TAB ════════════ */
+function renderEconomyTab(agg) {
+  const d  = agg.Economy || {};
+  const nl = nlTotals.Economy || {};
+
+  const kpis = [
+    { label: 'Businesses/1k', val: d['Business density (per 1k pop)'] != null ? d['Business density (per 1k pop)'].toFixed(1)           : '–', accent: '#0891b2' },
+    { label: 'Cars/household', val: d['Cars per household']           != null ? d['Cars per household'].toFixed(2)                     : '–', accent: '#7c3aed' },
+    { label: 'EV & alt. fuel', val: d['EV & alternative fuel cars (%)'] != null ? d['EV & alternative fuel cars (%)'].toFixed(1) + '%' : '–', accent: '#16a34a' },
+  ];
+  document.getElementById('eco-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}"><div class="kpi-value">${escapeHtml(k.val)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`
+  ).join('');
+
+  const sectorKeys = [
+    'Public/edu/health sector (%)', 'Trade & hospitality sector (%)', 'Business services sector (%)',
+    'Industry & energy sector (%)', 'Transport & ICT sector (%)', 'Finance & real estate sector (%)',
+    'Culture & recreation sector (%)', 'Agriculture sector (%)',
+  ];
+  const sectorColors = ['#4f46e5','#f97316','#0891b2','#dc2626','#7c3aed','#16a34a','#eab308','#6b7280'];
+
+  document.getElementById('eco-sector-bars').innerHTML = buildCoxcombChart(sectorKeys.map((key, index) => ({
+    key,
+    label: tLabel(key).replace(' sector (%)', ''),
+    color: sectorColors[index],
+    value: d[key],
+    nlValue: nl[key],
+  })), d, nl);
+
+  document.getElementById('eco-mobility-bars').innerHTML = `
+    <div class="badge-grid">
+      ${buildContextBadge('Business density', d['Business density (per 1k pop)'], nl['Business density (per 1k pop)'], 'Businesses per 1,000 residents', 'Business density (per 1k pop)')}
+      ${buildContextBadge('Cars per household', d['Cars per household'], nl['Cars per household'], 'Motorisation', 'Cars per household')}
+      ${buildContextBadge('EV & alternative fuel cars', d['EV & alternative fuel cars (%)'], nl['EV & alternative fuel cars (%)'], 'EV adoption share', 'EV & alternative fuel cars (%)')}
+    </div>`;
+}
+
+/* ════════════ ENVIRONMENT TAB ════════════ */
+function renderEnvironmentTab(agg) {
+  const d  = agg.Environment || {};
+  const nl = nlTotals.Environment || {};
+
+  const kpis = [
+    { label: 'Electricity',    val: d['Avg electricity use (kWh/yr)'] != null ? d['Avg electricity use (kWh/yr)'].toLocaleString() + ' kWh' : '–', accent: '#eab308' },
+    { label: 'Gas use',        val: d['Avg gas use (m³/yr)']          != null ? d['Avg gas use (m³/yr)'].toLocaleString() + ' m³'          : '–', accent: '#f97316' },
+    { label: 'Land area',      val: d['Land area (km²)']              != null ? d['Land area (km²)'].toFixed(1) + ' km²'                   : '–', accent: '#16a34a' },
+    { label: 'Water share',    val: d['Water share (%)']              != null ? d['Water share (%)'].toFixed(1) + '%'                       : '–', accent: '#0891b2' },
+  ];
+  document.getElementById('env-kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card" style="border-left-color:${k.accent}"><div class="kpi-value">${escapeHtml(k.val)}</div><div class="kpi-label">${escapeHtml(k.label)}</div></div>`
+  ).join('');
+
+  const envSeries = getSelectedSeries('Environment', ['Avg electricity use (kWh/yr)', 'Avg gas use (m³/yr)', 'Land area (km²)'])
+    .filter(item => item.data['Avg electricity use (kWh/yr)'] != null && item.data['Avg gas use (m³/yr)'] != null);
+  document.getElementById('env-energy-bars').innerHTML = buildEnvironmentScatter(envSeries, nl);
+
+  document.getElementById('env-land-bars').innerHTML = `
+    <div class="badge-grid">
+      ${buildContextBadge('Land area', d['Land area (km²)'], nl['Land area (km²)'], 'Bubble size input', 'Land area (km²)')}
+      ${buildContextBadge('Water area', d['Water area (km²)'], nl['Water area (km²)'], 'Water surface', 'Water area (km²)')}
+      ${buildContextBadge('District heating', d['District heating (%)'], nl['District heating (%)'], 'Heating network coverage', 'District heating (%)')}
+    </div>`;
+}
+
+/* ════════════ INDICATOR EXPLORER TAB ════════════ */
+let explorerInitialised = false;
+
+function renderExplorerTab() {
+  if (!explorerInitialised) {
+    explorerInitialised = true;
+    // Build indicator options grouped by domain
+    const sel = document.getElementById('explorer-indicator');
+    for (const domain of ALL_DOMAINS) {
+      const sample = {};
+      Object.values(gemeenteData).forEach(g => {
+        Object.keys(g[domain] || {}).forEach(ind => { sample[ind] = true; });
+      });
+      if (!Object.keys(sample).length) continue;
+      const grp = document.createElement('optgroup');
+      grp.label = tDomain(domain);
+      Object.keys(sample).forEach(ind => {
+        const opt = document.createElement('option');
+        opt.value = domain + '||' + ind;
+        opt.textContent = tLabel(ind);
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    }
+    // Populate provinces
+    const provSel = document.getElementById('explorer-province');
+    const provs = [...new Set(Object.values(gemeenteData).map(g => g.Provincie).filter(Boolean))].sort();
+    provs.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p; provSel.appendChild(opt);
+    });
+    sel.addEventListener('change', updateExplorer);
+    document.getElementById('explorer-province').addEventListener('change', updateExplorer);
+    document.getElementById('explorer-urban').addEventListener('change', updateExplorer);
+    updateExplorer();
+  }
+}
+
+function updateExplorer() {
+  const selEl   = document.getElementById('explorer-indicator');
+  const [domain, ind] = (selEl.value || '').split('||');
+  const provFilter  = document.getElementById('explorer-province').value;
+  const urbanFilter = document.getElementById('explorer-urban').value;
+  if (!domain || !ind) return;
+
+  // Collect all values
+  const urbanRanges = urbanFilter ? urbanFilter.split(',').map(Number) : null;
+  const allMuni = Object.entries(gemeenteData)
+    .filter(([, g]) => {
+      if (provFilter && g.Provincie !== provFilter) return false;
+      if (urbanRanges) {
+        const u = g.Services?.['Degree of urbanisation (1–5)'];
+        if (u == null) return false;
+        if (!urbanRanges.some(r => Math.round(u) === r)) return false;
+      }
+      return true;
+    })
+    .map(([gmc, g]) => ({ gmc, name: g.Naam || gmc, val: g[domain]?.[ind] }))
+    .filter(x => x.val != null)
+    .sort((a, b) => b.val - a.val);
+
+  if (!allMuni.length) {
+    document.getElementById('explorer-result').innerHTML = '<p style="color:#9ca3af;font-size:.85rem;">No data for this combination.</p>';
+    return;
+  }
+
+  const vals      = allMuni.map(x => x.val);
+  const mean      = vals.reduce((s, v) => s + v, 0) / vals.length;
+  const nlGlobal  = nlTotals[domain]?.[ind];
+  const selectedSet = new Set(selectedIds);
+
+  const fmt = v => fmtUnit(ind, v);
+
+  // Percentile rank helper
+  const pctRank = val => {
+    const below = vals.filter(v => v < val).length;
+    return Math.round(below / vals.length * 100);
+  };
+
+  // Top 10 + bottom 10 + selected
+  const top10    = allMuni.slice(0, 10);
+  const bot10    = allMuni.slice(-10).reverse();
+  const selMuni  = allMuni.filter(x => selectedSet.has(x.gmc));
+  const maxVal   = vals[0] || 1;
+
+  // ── Beeswarm plot: province-coloured
+  const PROV_COLORS = { 'Groningen':'#6366f1','Friesland':'#8b5cf6','Drenthe':'#a855f7','Overijssel':'#3b82f6','Flevoland':'#06b6d4','Gelderland':'#10b981','Utrecht':'#f59e0b','Noord-Holland':'#ef4444','Zuid-Holland':'#f97316','Zeeland':'#84cc16','Noord-Brabant':'#ec4899','Limburg':'#14b8a6' };
+  const provList = [...new Set(Object.values(gemeenteData).map(g => g.Provincie).filter(Boolean))].sort();
+
+  const min = vals[vals.length - 1], max2 = vals[0], range2 = max2 - min || 1;
+  const W = 720;
+  const R = 4.5;
+  const gap = 2;
+  const xFor = v => ((v - min) / range2) * (W - 24) + 12;
+
+  // Pre-compute selected x positions, then de-overlap their labels into rows
+  const selXmap = {};
+  selMuni.forEach(x => { selXmap[x.gmc] = xFor(x.val); });
+  const SEL_GAP = 64;
+  const slottedLabels = (() => {
+    const items = selMuni
+      .map(x => ({ cx: selXmap[x.gmc], name: x.name, gmc: x.gmc }))
+      .sort((a, b) => a.cx - b.cx);
+    const placed = [];
+    items.forEach(item => {
+      const near = placed.filter(p => Math.abs(p.cx - item.cx) < SEL_GAP);
+      const used = new Set(near.map(p => p.row));
+      let row = 0; while (used.has(row)) row++;
+      placed.push({ ...item, row });
+    });
+    return placed;
+  })();
+  const maxLabelRow = slottedLabels.length ? Math.max(...slottedLabels.map(l => l.row)) : -1;
+  const ROW_H = 14;
+  const topPad = (maxLabelRow + 1) * ROW_H + 14;
+
+  // Beeswarm collision — midY shifts down to make room for label rows
+  const midY = topPad + 80;
+  const dots = [];
+  allMuni.slice().sort((a, b) => a.val - b.val).forEach(x => {
+    const cx = xFor(x.val);
+    let level = 0;
+    let cy = midY;
+    while (true) {
+      const candidates = level === 0 ? [0] : [level, -level];
+      let placed = false;
+      for (const offset of candidates) {
+        const candidateY = midY + offset * (R * 2 + gap);
+        const collides = dots.some(dot => ((dot.cx - cx) ** 2 + (dot.cy - candidateY) ** 2) < ((R * 2 + gap) ** 2));
+        if (!collides) {
+          cy = candidateY;
+          placed = true;
+          break;
+        }
+      }
+      if (placed) break;
+      level += 1;
+    }
+    dots.push({ ...x, cx, cy });
+  });
+  const extent = Math.max(...dots.map(dot => Math.abs(dot.cy - midY)), 0);
+  const axisY = midY + extent + 10;
+  const svgH = axisY + 26;
+  const nlX = nlGlobal != null ? xFor(nlGlobal) : null;
+
+  const svgDots = dots.map(dot => {
+    const isSel  = selectedSet.has(dot.gmc);
+    const col    = PROV_COLORS[gemeenteData[dot.gmc]?.Provincie] || '#94a3b8';
+    const r      = isSel ? R + 2 : R;
+    return `<circle cx="${dot.cx.toFixed(1)}" cy="${dot.cy.toFixed(1)}" r="${r}"
+      fill="${isSel ? '#4f46e5' : col}" opacity="${isSel ? 1 : 0.65}"
+      stroke="${isSel ? '#fff' : 'none'}" stroke-width="${isSel ? 1.5 : 0}">
+      <title>${escapeHtml(dot.name)}: ${fmt(dot.val)}</title></circle>`;
+  }).join('');
+
+  // Axis ticks + numbers
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => {
+    const x = t * (W - 24) + 12;
+    const v = min + t * range2;
+    return `<line x1="${x}" x2="${x}" y1="${axisY}" y2="${axisY + 6}" stroke="#94a3b8" stroke-width="1"/>
+      <text x="${x}" y="${svgH}" text-anchor="middle" font-size="9" fill="#6b7280">${fmt(v)}</text>`;
+  }).join('');
+
+  // Selected labels: de-overlapped rows at top, short connector lines to each dot
+  const selLabels = slottedLabels.map(lbl => {
+    const labelY = lbl.row * ROW_H + ROW_H - 3;
+    const dot = dots.find(d => d.gmc === lbl.gmc);
+    const dotY = dot ? dot.cy - R - 1 : midY;
+    const shortName = lbl.name.length > 13 ? lbl.name.slice(0, 12) + '…' : lbl.name;
+    return `<text x="${lbl.cx.toFixed(1)}" y="${labelY}" text-anchor="middle" font-size="8" font-weight="700" fill="#4f46e5">${escapeHtml(shortName)}</text>
+      <line x1="${lbl.cx.toFixed(1)}" x2="${lbl.cx.toFixed(1)}" y1="${labelY + 2}" y2="${dotY.toFixed(1)}" stroke="#4f46e5" stroke-width="0.8" stroke-dasharray="2,2" opacity=".5"/>`;
+  }).join('');
+
+  const stripSvg = `<svg viewBox="0 0 ${W} ${svgH + 4}" class="strip-svg" style="width:100%;overflow:visible;">
+    ${svgDots}
+    <line x1="12" x2="${W - 12}" y1="${midY}" y2="${midY}" stroke="#e2e8f0" stroke-width="1.5"/>
+    ${ticks}
+    ${nlX != null ? `<line x1="${nlX.toFixed(1)}" x2="${nlX.toFixed(1)}" y1="${topPad}" y2="${axisY + 2}" stroke="#111827" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7"/>
+      <text x="${(Math.min(nlX + 4, W - 42)).toFixed(1)}" y="${axisY + 15}" font-size="8.5" fill="#111827" font-weight="600">NL avg</text>` : ''}
+    ${selLabels}
+  </svg>`;
+
+  // Legend
+  const legendHtml = `<div class="strip-legend">
+    ${provList.map(p => `<span style="display:flex;align-items:center;gap:4px;font-size:.68rem;color:#374151;">
+      <span style="width:9px;height:9px;border-radius:50%;background:${PROV_COLORS[p]||'#94a3b8'};display:inline-block;"></span>${p}
+    </span>`).join('')}
+    <span style="display:flex;align-items:center;gap:4px;font-size:.68rem;color:#4f46e5;font-weight:600;">
+      <span style="width:11px;height:11px;border-radius:50%;background:#4f46e5;display:inline-block;"></span>Selected
+    </span>
+  </div>`;
+
+  // Selected gemeente detail rows
+  const selDetail = selMuni.map(x => {
+    const rank = allMuni.findIndex(m => m.gmc === x.gmc) + 1;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:#ede9fe;border-radius:7px;margin-bottom:6px;">
+      <span style="width:8px;height:8px;border-radius:50%;background:#4f46e5;flex-shrink:0;"></span>
+      <span style="font-size:.82rem;font-weight:700;color:#4f46e5;flex:1;">${escapeHtml(x.name)}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:.85rem;color:#4f46e5;">${fmt(x.val)}</span>
+      <span style="font-size:.72rem;color:#7c3aed;background:#ddd6fe;padding:2px 7px;border-radius:10px;">#${rank} / ${allMuni.length} · ${pctRank(x.val)}th pct.</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('explorer-result').innerHTML = `
+    <div class="domain-card" style="margin-bottom:1rem;">
+      <div class="domain-title">${escapeHtml(tLabel(ind))} — all ${allMuni.length} gemeenten as a beeswarm</div>
+      ${legendHtml}
+      <div class="swarm-wrap" style="margin-top:8px;">${stripSvg}</div>
+    </div>
+    <div style="display:flex;gap:16px;font-size:.78rem;flex-wrap:wrap;margin-bottom:1rem;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;">
+      <span>Min: <strong>${fmt(min)}</strong></span>
+      <span>Median: <strong>${fmt(vals[Math.floor(vals.length/2)])}</strong></span>
+      <span>Mean: <strong>${fmt(mean)}</strong></span>
+      <span>Max: <strong>${fmt(max2)}</strong></span>
+      ${nlGlobal != null ? `<span style="color:#dc2626;">NL avg: <strong>${fmt(nlGlobal)}</strong></span>` : ''}
+    </div>
+    ${selDetail ? `<div style="margin-bottom:1rem;">${selDetail}</div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="domain-card">
+        <div class="domain-title" style="color:#16a34a;">Top 10</div>
+        ${top10.map((x, i) => `<div style="display:flex;align-items:center;gap:7px;padding:4px 0;border-bottom:1px solid #f1f5f9;">
+          <span style="font-size:.68rem;color:#9ca3af;width:20px;text-align:right;">${i+1}</span>
+          <span style="font-size:.77rem;color:${selectedSet.has(x.gmc)?'#4f46e5':'#374151'};font-weight:${selectedSet.has(x.gmc)?700:500};flex:1;">${escapeHtml(x.name)}</span>
+          <span style="font-size:.77rem;font-weight:700;color:#16a34a;font-family:'JetBrains Mono',monospace;">${fmt(x.val)}</span>
+        </div>`).join('')}
+      </div>
+      <div class="domain-card">
+        <div class="domain-title" style="color:#dc2626;">Bottom 10</div>
+        ${bot10.map((x, i) => `<div style="display:flex;align-items:center;gap:7px;padding:4px 0;border-bottom:1px solid #f1f5f9;">
+          <span style="font-size:.68rem;color:#9ca3af;width:20px;text-align:right;">${allMuni.length - i}</span>
+          <span style="font-size:.77rem;color:${selectedSet.has(x.gmc)?'#4f46e5':'#374151'};font-weight:${selectedSet.has(x.gmc)?700:500};flex:1;">${escapeHtml(x.name)}</span>
+          <span style="font-size:.77rem;font-weight:700;color:#dc2626;font-family:'JetBrains Mono',monospace;">${fmt(x.val)}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function buildCoxcombChart(items, d, nl) {
+  const size = 360;
+  const cx = size / 2;
+  const cy = size / 2;
+  const innerR = 32;
+  const outerR = 132;
+  const maxVal = Math.max(...items.map(item => Math.max(item.value || 0, item.nlValue || 0)), 1);
+  const polar = (r, angle) => ({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+  const segmentPath = (start, end, rOuter) => {
+    const a = polar(innerR, start);
+    const b = polar(rOuter, start);
+    const c = polar(rOuter, end);
+    const dPoint = polar(innerR, end);
+    return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} A ${rOuter.toFixed(2)} ${rOuter.toFixed(2)} 0 0 1 ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${dPoint.x.toFixed(2)} ${dPoint.y.toFixed(2)} A ${innerR} ${innerR} 0 0 0 ${a.x.toFixed(2)} ${a.y.toFixed(2)} Z`;
+  };
+  const arcPath = (r, start, end) => {
+    const a = polar(r, start);
+    const b = polar(r, end);
+    return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`;
+  };
+  return `<div class="coxcomb-wrap">
+    <div>
+      <svg viewBox="0 0 ${size} ${size}" style="width:100%;max-width:${size}px;">
+        ${[0.25, 0.5, 0.75, 1].map(step => `<circle cx="${cx}" cy="${cy}" r="${(innerR + (outerR - innerR) * step).toFixed(1)}" fill="none" stroke="#e2e8f0" stroke-dasharray="3 4"></circle>`).join('')}
+        ${items.map((item, index) => {
+          const start = -Math.PI / 2 + index * (Math.PI * 2 / items.length);
+          const end = start + (Math.PI * 2 / items.length) - 0.02;
+          const radius = innerR + ((item.value || 0) / maxVal) * (outerR - innerR);
+          const nlRadius = innerR + ((item.nlValue || 0) / maxVal) * (outerR - innerR);
+          const labelPoint = polar(outerR + 16, start + (end - start) / 2);
+          return `
+            <path d="${segmentPath(start, end, radius)}" fill="${item.color}" fill-opacity=".8"></path>
+            ${item.nlValue != null ? `<path d="${arcPath(nlRadius, start, end)}" fill="none" stroke="#111827" stroke-width="2"></path>` : ''}
+            <text x="${labelPoint.x.toFixed(1)}" y="${labelPoint.y.toFixed(1)}" font-size="8.5" text-anchor="middle" fill="#334155">${escapeHtml(item.label.replace(' (%)', ''))}</text>`;
+        }).join('')}
+        <circle cx="${cx}" cy="${cy}" r="${innerR - 4}" fill="#fff"></circle>
+        <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">${fmtUnit('Business density (per 1k pop)', d['Business density (per 1k pop)'])}</text>
+        <text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="10" fill="#64748b">business density</text>
+      </svg>
+    </div>
+    <div class="coxcomb-note">
+      Equal-angle sectors show the municipality business mix; wedge length is the selected share and the black arc marks the Netherlands average for that sector. The centre badge keeps mobility context close without reusing another composition chart.
+    </div>
+  </div>`;
+}
+
+function buildEnvironmentScatter(series, nl) {
+  const xKey = 'Avg electricity use (kWh/yr)';
+  const yKey = 'Avg gas use (m³/yr)';
+  const sizeKey = 'Land area (km²)';
+  const nlPoint = nl[xKey] != null && nl[yKey] != null ? { x: nl[xKey], y: nl[yKey], size: nl[sizeKey] || 0, water: nl['Water share (%)'] || 0 } : null;
+  if (!series.length && !nlPoint) return '<p style="color:#9ca3af;font-size:.82rem;">No environment scatter data available.</p>';
+  const points = series.map(item => ({
+    ...item,
+    x: item.data[xKey],
+    y: item.data[yKey],
+    size: item.data[sizeKey] || 0,
+    water: item.data['Water share (%)'] || 0,
+    heat: item.data['District heating (%)'],
+  })).filter(point => point.x != null && point.y != null);
+  const xs = [...points.map(p => p.x), nlPoint?.x].filter(v => v != null);
+  const ys = [...points.map(p => p.y), nlPoint?.y].filter(v => v != null);
+  const sizes = [...points.map(p => p.size), nlPoint?.size].filter(v => v != null);
+  const w = 440;
+  const h = 260;
+  const pad = { left: 52, right: 18, top: 16, bottom: 34 };
+  const xPos = v => pad.left + ((v - Math.min(...xs) * 0.95) / ((Math.max(...xs) * 1.05 - Math.min(...xs) * 0.95) || 1)) * (w - pad.left - pad.right);
+  const yPos = v => h - pad.bottom - ((v - Math.min(...ys) * 0.9) / ((Math.max(...ys) * 1.08 - Math.min(...ys) * 0.9) || 1)) * (h - pad.top - pad.bottom);
+  const maxSize = Math.max(...sizes, 1);
+  return `<div>
+    <div class="scatter-legend">
+      ${points.map(point => `<span><span class="series-swatch" style="background:${point.color};margin-right:5px;"></span>${escapeHtml(point.name)}</span>`).join('')}
+      ${nlPoint ? `<span><span class="series-swatch" style="background:#fff;border:2px solid #111827;box-sizing:border-box;margin-right:5px;"></span>Netherlands</span>` : ''}
+    </div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;">
+      <line x1="${pad.left}" x2="${w - pad.right}" y1="${h - pad.bottom}" y2="${h - pad.bottom}" stroke="#cbd5e1"></line>
+      <line x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${h - pad.bottom}" stroke="#cbd5e1"></line>
+      <text x="${w / 2}" y="${h - 6}" text-anchor="middle" font-size="10" fill="#475569">Avg electricity use</text>
+      <text x="14" y="${h / 2}" transform="rotate(-90 14 ${h / 2})" text-anchor="middle" font-size="10" fill="#475569">Avg gas use</text>
+      ${points.map(point => {
+        const cx = xPos(point.x);
+        const cy = yPos(point.y);
+        const r = 10 + (point.size / maxSize) * 18;
+        const opacity = 0.25 + Math.min(point.water / 100, 1) * 0.45;
+        return `<g>
+          <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${point.color}" fill-opacity="${opacity.toFixed(2)}" stroke="${point.color}" stroke-width="2"></circle>
+          <text x="${(cx + r + 4).toFixed(1)}" y="${(cy - r - 2).toFixed(1)}" font-size="9.5" fill="${point.color}" font-weight="600">${escapeHtml(point.name.split(' ')[0])}</text>
+          ${point.heat != null ? `<text x="${(cx + r + 4).toFixed(1)}" y="${(cy + 10).toFixed(1)}" font-size="8.5" fill="#64748b">Heat ${fmtUnit('District heating (%)', point.heat)}</text>` : ''}
+        </g>`;
+      }).join('')}
+      ${nlPoint ? `<circle cx="${xPos(nlPoint.x).toFixed(1)}" cy="${yPos(nlPoint.y).toFixed(1)}" r="16" fill="#fff" stroke="#111827" stroke-width="2.2"></circle>` : ''}
+    </svg>
+    <p class="coxcomb-note">Bubble size reflects land area, fill density reflects water share, and the hollow Netherlands bubble anchors the national benchmark.</p>
+  </div>`;
+}
+
+/* ════════════ EXCEL EXPORT ════════════ */
+function downloadExcel() {
+  if (!window.XLSX) return alert('XLSX library not loaded');
+  const wb  = XLSX.utils.book_new();
+  const agg = aggregateSelected(selectedIds);
+  const sheetNames = { Demographics: 'Demographics', Inequality: 'Inequality', HumanCapital: 'Human Capital', Housing: 'Housing', IncomeWealth: 'Income & Wealth', Services: 'Services', WelfareCare: 'Welfare & Care', Economy: 'Economy', Environment: 'Environment' };
+  for (const domain of ALL_DOMAINS) {
+    const nl   = nlTotals[domain] || {};
+    const rows = [['Indicator', 'Avg Selected', 'NL Average']];
+    Object.entries(agg[domain] || {}).forEach(([ind, val]) => {
+      rows.push([ind, val, nl[ind] ?? null]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), (sheetNames[domain] || domain).substring(0, 31));
+  }
+  XLSX.writeFile(wb, 'nlstat_gemeente_profile.xlsx');
+}
+</script>
+</body>
+</html>
